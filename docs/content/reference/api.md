@@ -163,13 +163,27 @@ GCPPrivateServiceConnectSpec
 <table>
 <tr>
 <td>
+<code>loadBalancerIP</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>loadBalancerIP is the IP address of the Internal Load Balancer
+Populated by the observer from service status</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>forwardingRuleName</code></br>
 <em>
 string
 </em>
 </td>
 <td>
-<p>forwardingRuleName is the name of the Internal Load Balancer forwarding rule</p>
+<em>(Optional)</em>
+<p>forwardingRuleName is the name of the Internal Load Balancer forwarding rule
+Populated by the reconciler via GCP API lookup</p>
 </td>
 </tr>
 <tr>
@@ -6039,13 +6053,27 @@ long-term service account keys.</p>
 <tbody>
 <tr>
 <td>
+<code>loadBalancerIP</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>loadBalancerIP is the IP address of the Internal Load Balancer
+Populated by the observer from service status</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>forwardingRuleName</code></br>
 <em>
 string
 </em>
 </td>
 <td>
-<p>forwardingRuleName is the name of the Internal Load Balancer forwarding rule</p>
+<em>(Optional)</em>
+<p>forwardingRuleName is the name of the Internal Load Balancer forwarding rule
+Populated by the reconciler via GCP API lookup</p>
 </td>
 </tr>
 <tr>
