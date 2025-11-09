@@ -147,7 +147,7 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 	}
 
 	// 7. Reconcile Service Attachment
-	return r.reconcileServiceAttachment(ctx, gcpPSC)
+	return r.reconcileServiceAttachment(ctx, gcpPSC, hc)
 }
 
 // reconcileGCPPrivateServiceConnectSpec reconciles the GCPPrivateServiceConnect spec fields
@@ -279,11 +279,12 @@ func (r *GCPPrivateServiceConnectReconciler) discoverNATSubnet(ctx context.Conte
 }
 
 // reconcileServiceAttachment manages Service Attachment lifecycle
-func (r *GCPPrivateServiceConnectReconciler) reconcileServiceAttachment(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) (ctrl.Result, error) {
+func (r *GCPPrivateServiceConnectReconciler) reconcileServiceAttachment(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hc *hyperv1.HostedCluster) (ctrl.Result, error) {
 	log := r.Log.WithValues("gcpprivateserviceconnect", gcpPSC.Name)
 
-	// 1. Construct Service Attachment name
-	serviceAttachmentName := fmt.Sprintf("%s-psc-service-attachment", gcpPSC.Name)
+	// 1. Construct unique Service Attachment name using PSC name + cluster ID + cluster name
+	// This prevents conflicts when multiple clusters have the same PSC resource name
+	serviceAttachmentName := r.constructServiceAttachmentName(gcpPSC, hc)
 
 	// 2. Check if Service Attachment already exists
 	existingServiceAttachment, err := r.GcpClient.ServiceAttachments.Get(r.ProjectID, r.Region, serviceAttachmentName).Context(ctx).Do()
@@ -338,6 +339,39 @@ func (r *GCPPrivateServiceConnectReconciler) constructSubnetURL(subnetName strin
 func (r *GCPPrivateServiceConnectReconciler) constructServiceAttachmentURI(serviceAttachmentName string) string {
 	return fmt.Sprintf("projects/%s/regions/%s/serviceAttachments/%s",
 		r.ProjectID, r.Region, serviceAttachmentName)
+}
+
+// constructServiceAttachmentName builds a unique Service Attachment name using PSC name + cluster ID + cluster name
+// Format: {pscName}-{clusterID}-{clusterName}-psc-sa (truncated to fit GCP 63-char limit)
+func (r *GCPPrivateServiceConnectReconciler) constructServiceAttachmentName(gcpPSC *hyperv1.GCPPrivateServiceConnect, hc *hyperv1.HostedCluster) string {
+	// Extract cluster ID (first 8 chars for brevity)
+	clusterID := hc.Spec.ClusterID
+	if len(clusterID) > 8 {
+		clusterID = clusterID[:8]
+	}
+
+	// Use cluster name (truncate if needed)
+	clusterName := hc.Name
+	if len(clusterName) > 20 {
+		clusterName = clusterName[:20]
+	}
+
+	// PSC name (truncate if needed)
+	pscName := gcpPSC.Name
+	if len(pscName) > 15 {
+		pscName = pscName[:15]
+	}
+
+	// Construct name: {pscName}-{clusterID}-{clusterName}-psc-sa
+	// Total format: up to 15 + 1 + 8 + 1 + 20 + 7 = 52 chars (well within 63 limit)
+	serviceAttachmentName := fmt.Sprintf("%s-%s-%s-psc-sa", pscName, clusterID, clusterName)
+
+	// Ensure we don't exceed GCP's 63-character limit
+	if len(serviceAttachmentName) > 63 {
+		serviceAttachmentName = serviceAttachmentName[:63]
+	}
+
+	return serviceAttachmentName
 }
 
 // buildConsumerAcceptLists builds the consumer accept list for Service Attachment
@@ -395,8 +429,12 @@ func (r *GCPPrivateServiceConnectReconciler) updateStatusFromServiceAttachment(c
 func (r *GCPPrivateServiceConnectReconciler) delete(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) (bool, error) {
 	log := r.Log.WithValues("gcpprivateserviceconnect", gcpPSC.Name)
 
-	// Delete Service Attachment
-	serviceAttachmentName := fmt.Sprintf("%s-psc-service-attachment", gcpPSC.Name)
+	// Use Service Attachment name from status (set during creation)
+	serviceAttachmentName := gcpPSC.Status.ServiceAttachmentName
+	if serviceAttachmentName == "" {
+		log.Info("No Service Attachment name in status, nothing to delete")
+		return true, nil // Consider deletion completed if no Service Attachment was created
+	}
 
 	log.Info("Deleting Service Attachment", "name", serviceAttachmentName)
 	op, err := r.GcpClient.ServiceAttachments.Delete(r.ProjectID, r.Region, serviceAttachmentName).Context(ctx).Do()
