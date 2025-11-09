@@ -381,6 +381,8 @@ type HyperShiftOperatorDeployment struct {
 	AWSPrivateSecret                        *corev1.Secret
 	AWSPrivateSecretKey                     string
 	AWSPrivateRegion                        string
+	GCPPrivateRegion                        string
+	GCPPrivateProject                       string
 	OIDCBucketName                          string
 	OIDCBucketRegion                        string
 	OIDCStorageProviderS3Secret             *corev1.Secret
@@ -597,6 +599,20 @@ func (o HyperShiftOperatorDeployment) Build() *appsv1.Deployment {
 					Name:  "AWS_SDK_LOAD_CONFIG",
 					Value: "1",
 				})
+		case hyperv1.GCPPlatform:
+			envVars = append(envVars,
+				corev1.EnvVar{
+					Name:  "GCP_REGION",
+					Value: o.GCPPrivateRegion,
+				},
+				corev1.EnvVar{
+					Name:  "GCP_PROJECT",
+					Value: o.GCPPrivateProject,
+				})
+		}
+
+		// Add AWS-specific volumes if AWS platform
+		if privatePlatformType == hyperv1.AWSPlatform {
 			volumeMounts = append(volumeMounts, corev1.VolumeMount{
 				Name:      "token",
 				MountPath: "/var/run/secrets/openshift/serviceaccount",
