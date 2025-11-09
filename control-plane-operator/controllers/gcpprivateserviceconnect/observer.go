@@ -12,8 +12,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	kubeclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/informers"
+	kubeclient "k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -23,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/go-logr/logr"
-	"k8s.io/utils/pointer"
 )
 
 const (
@@ -183,7 +184,7 @@ func (r *GCPPrivateServiceObserver) reconcileGCPPrivateServiceConnect(ctx contex
 			Kind:       "HostedControlPlane",
 			Name:       hcp.Name,
 			UID:        hcp.UID,
-			Controller: pointer.Bool(true),
+			Controller: ptr.To(true),
 		}}
 
 		// Set spec fields
