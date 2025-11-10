@@ -96,8 +96,6 @@ type Options struct {
 	AWSPrivateCredentialsSecret               string
 	AWSPrivateCredentialsSecretKey            string
 	AWSPrivateRegion                          string
-	GCPPrivateRegion                          string
-	GCPPrivateProject                         string
 	OIDCStorageProviderS3Region               string
 	OIDCStorageProviderS3BucketName           string
 	OIDCStorageProviderS3Credentials          string
@@ -247,8 +245,6 @@ func NewCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateCredentialsSecret, "aws-private-secret", "", "Name of an existing secret containing the AWS private link credentials.")
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateCredentialsSecretKey, "aws-private-secret-key", opts.AWSPrivateCredentialsSecretKey, "Name of the secret key containing the AWS private link credentials.")
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateRegion, "aws-private-region", opts.AWSPrivateRegion, "AWS region where private clusters are supported by this operator")
-	cmd.PersistentFlags().StringVar(&opts.GCPPrivateRegion, "gcp-private-region", "", "GCP region where private clusters are supported by this operator")
-	cmd.PersistentFlags().StringVar(&opts.GCPPrivateProject, "gcp-private-project", "", "GCP project ID where private clusters are supported by this operator")
 	cmd.PersistentFlags().StringVar(&opts.OIDCStorageProviderS3Region, "oidc-storage-provider-s3-region", "", "Region of the OIDC bucket. Required for AWS guest clusters")
 	cmd.PersistentFlags().StringVar(&opts.OIDCStorageProviderS3BucketName, "oidc-storage-provider-s3-bucket-name", "", "Name of the bucket in which to store the clusters OIDC discovery information. Required for AWS guest clusters")
 	cmd.PersistentFlags().StringVar(&opts.OIDCStorageProviderS3Credentials, "oidc-storage-provider-s3-credentials", opts.OIDCStorageProviderS3Credentials, "Credentials to use for writing the OIDC documents into the S3 bucket. Required for AWS guest clusters")
@@ -799,8 +795,6 @@ func setupOperatorResources(opts Options, userCABundleCM *corev1.ConfigMap, trus
 		EnableValidatingWebhook:                 opts.EnableValidatingWebhook,
 		PrivatePlatform:                         opts.PrivatePlatform,
 		AWSPrivateRegion:                        opts.AWSPrivateRegion,
-		GCPPrivateRegion:                        opts.GCPPrivateRegion,
-		GCPPrivateProject:                       opts.GCPPrivateProject,
 		AWSPrivateSecret:                        operatorCredentialsSecret,
 		AWSPrivateSecretKey:                     opts.AWSPrivateCredentialsSecretKey,
 		OIDCBucketName:                          opts.OIDCStorageProviderS3BucketName,
