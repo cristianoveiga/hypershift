@@ -141,10 +141,9 @@ func (o *Options) Validate() error {
 		if (len(o.AWSPrivateCreds) == 0 && len(o.AWSPrivateCredentialsSecret) == 0) || len(o.AWSPrivateRegion) == 0 {
 			errs = append(errs, fmt.Errorf("--aws-private-region and --aws-private-creds or --aws-private-secret are required with --private-platform=%s", hyperv1.AWSPlatform))
 		}
-	//case hyperv1.GCPPlatform:
-	//	if len(o.GCPPrivateRegion) == 0 {
-	//		errs = append(errs, fmt.Errorf("--gcp-private-region is required with --private-platform=%s", hyperv1.GCPPlatform))
-	//	}
+	case hyperv1.GCPPlatform:
+		// GCP platform is supported but requires no additional validation at this time
+
 	case hyperv1.NonePlatform:
 	default:
 		errs = append(errs, fmt.Errorf("--private-platform must be either %s, %s, or %s", hyperv1.AWSPlatform, hyperv1.GCPPlatform, hyperv1.NonePlatform))
@@ -248,7 +247,7 @@ func NewCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateCredentialsSecret, "aws-private-secret", "", "Name of an existing secret containing the AWS private link credentials.")
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateCredentialsSecretKey, "aws-private-secret-key", opts.AWSPrivateCredentialsSecretKey, "Name of the secret key containing the AWS private link credentials.")
 	cmd.PersistentFlags().StringVar(&opts.AWSPrivateRegion, "aws-private-region", opts.AWSPrivateRegion, "AWS region where private clusters are supported by this operator")
-	cmd.PersistentFlags().StringVar(&opts.GCPPrivateRegion, "gcp-private-region", "us-central1", "GCP region where private clusters are supported by this operator")
+	cmd.PersistentFlags().StringVar(&opts.GCPPrivateRegion, "gcp-private-region", "", "GCP region where private clusters are supported by this operator")
 	cmd.PersistentFlags().StringVar(&opts.GCPPrivateProject, "gcp-private-project", "", "GCP project ID where private clusters are supported by this operator")
 	cmd.PersistentFlags().StringVar(&opts.OIDCStorageProviderS3Region, "oidc-storage-provider-s3-region", "", "Region of the OIDC bucket. Required for AWS guest clusters")
 	cmd.PersistentFlags().StringVar(&opts.OIDCStorageProviderS3BucketName, "oidc-storage-provider-s3-bucket-name", "", "Name of the bucket in which to store the clusters OIDC discovery information. Required for AWS guest clusters")
