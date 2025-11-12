@@ -406,17 +406,17 @@ func (r *GCPPrivateServiceConnectReconciler) updateStatusFromServiceAttachment(c
 
 	if isReady {
 		meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
-			Type:               "ServiceAttachmentAvailable",
+			Type:               string(hyperv1.GCPServiceAttachmentAvailable),
 			Status:             metav1.ConditionTrue,
-			Reason:             "ServiceAttachmentReady",
+			Reason:             hyperv1.GCPSuccessReason,
 			Message:            "GCP Service Attachment is ready and accepting connections",
 			LastTransitionTime: now,
 		})
 	} else {
 		meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
-			Type:               "ServiceAttachmentAvailable",
+			Type:               string(hyperv1.GCPServiceAttachmentAvailable),
 			Status:             metav1.ConditionFalse,
-			Reason:             "ServiceAttachmentNotReady",
+			Reason:             hyperv1.GCPErrorReason,
 			Message:            "GCP Service Attachment is not properly configured",
 			LastTransitionTime: now,
 		})
@@ -489,7 +489,7 @@ func (r *GCPPrivateServiceConnectReconciler) handleGCPError(ctx context.Context,
 	// Update condition
 	patch := client.MergeFrom(gcpPSC.DeepCopy())
 	meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
-		Type:               "ServiceAttachmentAvailable",
+		Type:               string(hyperv1.GCPServiceAttachmentAvailable),
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
 		Message:            message,
