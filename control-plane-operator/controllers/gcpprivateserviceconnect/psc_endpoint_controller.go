@@ -389,7 +389,11 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 // Helper functions for resource naming and URL construction
 
 func (r *GCPPrivateServiceConnectReconciler) constructEndpointName(gcpPSC *hyperv1.GCPPrivateServiceConnect) string {
-	return fmt.Sprintf("%s-psc-endpoint", gcpPSC.Name)
+	// Include namespace to ensure uniqueness across different clusters
+	// Replace any characters that aren't valid for GCP resource names
+	safeName := strings.ReplaceAll(gcpPSC.Name, "_", "-")
+	safeNamespace := strings.ReplaceAll(gcpPSC.Namespace, "_", "-")
+	return fmt.Sprintf("%s-%s-psc-endpoint", safeNamespace, safeName)
 }
 
 func (r *GCPPrivateServiceConnectReconciler) constructIPAddressName(gcpPSC *hyperv1.GCPPrivateServiceConnect) string {
