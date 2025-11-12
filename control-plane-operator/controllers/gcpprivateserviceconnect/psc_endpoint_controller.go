@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
@@ -197,7 +198,7 @@ func (r *GCPPrivateServiceConnectReconciler) ensureIPAddress(ctx context.Context
 	// Check if IP already allocated and recorded in status
 	if gcpPSC.Status.EndpointIP != "" {
 		// Verify IP still exists in GCP
-		if exists, err := r.verifyIPExists(ctx, gcpPSC.Status.EndpointIP, customerGCPClient, customerProject, region); err != nil {
+		if exists, err := r.verifyIPExists(ctx, gcpPSC, customerGCPClient, customerProject, region); err != nil {
 			return ctrl.Result{}, err
 		} else if exists {
 			return ctrl.Result{}, nil // IP ready
@@ -213,6 +214,25 @@ func (r *GCPPrivateServiceConnectReconciler) ensureIPAddress(ctx context.Context
 
 	// Reserve static internal IP
 	ipName := r.constructIPAddressName(gcpPSC)
+
+	// First check if IP address already exists in GCP (make operation idempotent)
+	existingAddress, err := customerGCPClient.Addresses.Get(customerProject, region, ipName).Context(ctx).Do()
+	if err != nil && !isNotFoundError(err) {
+		return ctrl.Result{}, fmt.Errorf("failed to check existing IP address: %w", err)
+	}
+
+	if existingAddress != nil {
+		// IP already exists, update status and continue
+		log.Info("IP address already exists, updating status", "name", ipName, "ip", existingAddress.Address)
+		patch := client.MergeFrom(gcpPSC.DeepCopy())
+		gcpPSC.Status.EndpointIP = existingAddress.Address
+		if err := r.Status().Patch(ctx, gcpPSC, patch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to update EndpointIP with existing address: %w", err)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// IP doesn't exist, create it
 	ipAddress := &compute.Address{
 		Name:        ipName,
 		Description: fmt.Sprintf("PSC endpoint IP for HyperShift cluster %s", gcpPSC.Name),
@@ -221,7 +241,7 @@ func (r *GCPPrivateServiceConnectReconciler) ensureIPAddress(ctx context.Context
 		// Purpose not set for subnetwork addresses - PSC purpose is implicit when used with ForwardingRule
 	}
 
-	log.Info("Reserving IP address for PSC endpoint", "name", ipName, "subnet", pscSubnet)
+	log.Info("Reserving new IP address for PSC endpoint", "name", ipName, "subnet", pscSubnet)
 	op, err := customerGCPClient.Addresses.Insert(customerProject, region, ipAddress).Context(ctx).Do()
 	if err != nil {
 		return r.handleGCPError(ctx, gcpPSC, "IPReservationFailed", err)
@@ -250,8 +270,8 @@ func (r *GCPPrivateServiceConnectReconciler) ensureIPAddress(ctx context.Context
 }
 
 // verifyIPExists checks if the IP address still exists in GCP
-func (r *GCPPrivateServiceConnectReconciler) verifyIPExists(ctx context.Context, ip string, customerGCPClient *compute.Service, customerProject, region string) (bool, error) {
-	ipName := r.constructIPAddressNameFromIP(ip)
+func (r *GCPPrivateServiceConnectReconciler) verifyIPExists(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, customerGCPClient *compute.Service, customerProject, region string) (bool, error) {
+	ipName := r.constructIPAddressName(gcpPSC)
 	_, err := customerGCPClient.Addresses.Get(customerProject, region, ipName).Context(ctx).Do()
 	if err != nil {
 		if isNotFoundError(err) {
@@ -372,7 +392,11 @@ func (r *GCPPrivateServiceConnectReconciler) constructEndpointName(gcpPSC *hyper
 }
 
 func (r *GCPPrivateServiceConnectReconciler) constructIPAddressName(gcpPSC *hyperv1.GCPPrivateServiceConnect) string {
-	return fmt.Sprintf("%s-psc-endpoint-ip", gcpPSC.Name)
+	// Include namespace to ensure uniqueness across different clusters
+	// Replace any characters that aren't valid for GCP resource names
+	safeName := strings.ReplaceAll(gcpPSC.Name, "_", "-")
+	safeNamespace := strings.ReplaceAll(gcpPSC.Namespace, "_", "-")
+	return fmt.Sprintf("%s-%s-psc-endpoint-ip", safeNamespace, safeName)
 }
 
 func (r *GCPPrivateServiceConnectReconciler) constructIPAddressNameFromIP(ip string) string {
