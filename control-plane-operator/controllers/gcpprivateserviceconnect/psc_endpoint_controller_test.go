@@ -107,6 +107,47 @@ func TestConstructSubnetURL(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
+func TestConstructAddressURL(t *testing.T) {
+	r := &GCPPrivateServiceConnectReconciler{}
+
+	tests := []struct {
+		name            string
+		addressName     string
+		customerProject string
+		region          string
+		expected        string
+	}{
+		{
+			name:            "When constructing address URL it should include project, region, and name",
+			addressName:     "clusters-test-cluster-1-private-router-psc-endpoint-ip",
+			customerProject: "customer-project-123",
+			region:          "us-central1",
+			expected:        "projects/customer-project-123/regions/us-central1/addresses/clusters-test-cluster-1-private-router-psc-endpoint-ip",
+		},
+		{
+			name:            "When using different region it should construct correctly",
+			addressName:     "test-address",
+			customerProject: "my-gcp-project",
+			region:          "europe-west1",
+			expected:        "projects/my-gcp-project/regions/europe-west1/addresses/test-address",
+		},
+		{
+			name:            "When using numeric project ID it should work",
+			addressName:     "my-psc-ip",
+			customerProject: "123456789",
+			region:          "asia-southeast1",
+			expected:        "projects/123456789/regions/asia-southeast1/addresses/my-psc-ip",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := r.constructAddressURL(tt.addressName, tt.customerProject, tt.region)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestIsServiceAttachmentReady(t *testing.T) {
 	r := &GCPPrivateServiceConnectReconciler{}
 
