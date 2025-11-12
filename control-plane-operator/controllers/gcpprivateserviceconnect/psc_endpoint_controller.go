@@ -298,13 +298,14 @@ func (r *GCPPrivateServiceConnectReconciler) reconcilePSCEndpoint(ctx context.Co
 	}
 
 	// Create new PSC endpoint
+	ipName := r.constructIPAddressName(gcpPSC)
 	endpoint := &compute.ForwardingRule{
 		Name:                endpointName,
 		Description:         fmt.Sprintf("PSC endpoint for HyperShift cluster %s", gcpPSC.Name),
 		Network:             r.constructNetworkURL(hcp.Spec.Platform.GCP.NetworkConfig.Network.Name, customerProject),
 		Subnetwork:          r.constructSubnetURL(hcp.Spec.Platform.GCP.NetworkConfig.PrivateServiceConnectSubnet.Name, customerProject, region),
 		Target:              gcpPSC.Status.ServiceAttachmentURI, // From management-side
-		IPAddress:           gcpPSC.Status.EndpointIP,           // Reserved IP
+		IPAddress:           r.constructAddressURL(ipName, customerProject, region), // Reserved IP resource URL
 		LoadBalancingScheme: "INTERNAL",
 	}
 
@@ -411,6 +412,10 @@ func (r *GCPPrivateServiceConnectReconciler) constructNetworkURL(networkName, cu
 
 func (r *GCPPrivateServiceConnectReconciler) constructSubnetURL(subnetName, customerProject, region string) string {
 	return fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", customerProject, region, subnetName)
+}
+
+func (r *GCPPrivateServiceConnectReconciler) constructAddressURL(addressName, customerProject, region string) string {
+	return fmt.Sprintf("projects/%s/regions/%s/addresses/%s", customerProject, region, addressName)
 }
 
 // getHostedControlPlane retrieves the HostedControlPlane from the CR's owner reference
