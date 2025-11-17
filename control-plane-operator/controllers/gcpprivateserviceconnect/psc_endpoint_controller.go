@@ -25,11 +25,15 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"k8s.io/client-go/util/workqueue"
 )
 
 const (
-	pscEndpointFinalizer = "hypershift.openshift.io/gcp-psc-customer"
+	pscEndpointFinalizer                   = "hypershift.openshift.io/gcp-psc-customer"
+	pscEndpointDeletionRequeueDuration     = 5 * time.Second // Match AWS pattern
 )
 
 // gcpClientBuilder manages GCP client creation with HCP configuration
@@ -77,9 +81,19 @@ type GCPPrivateServiceConnectReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *GCPPrivateServiceConnectReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&hyperv1.GCPPrivateServiceConnect{}).
-		Complete(r)
+		WithOptions(controller.Options{
+			RateLimiter:             workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](3*time.Second, 30*time.Second),
+			MaxConcurrentReconciles: 10,
+		}).
+		Build(r)
+	if err != nil {
+		return fmt.Errorf("failed setting up with a controller manager: %w", err)
+	}
+	r.Client = mgr.GetClient()
+
+	return nil
 }
 
 // Reconcile implements the main reconciliation logic for PSC endpoints
@@ -115,7 +129,7 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 				return ctrl.Result{}, fmt.Errorf("failed to delete resource: %w", err)
 			}
 			if !completed {
-				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+				return ctrl.Result{RequeueAfter: pscEndpointDeletionRequeueDuration}, nil
 			}
 		}
 
@@ -358,18 +372,26 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 	customerProject := r.gcpClientBuilder.customerProject
 	region := r.gcpClientBuilder.region
 
-	// Delete PSC endpoint
+	// Delete PSC endpoint (following management-side GCP pattern)
 	endpointName := r.constructEndpointName(gcpPSC)
 	log.Info("Deleting PSC endpoint", "name", endpointName)
 
 	op, err := customerGCPClient.ForwardingRules.Delete(customerProject, region, endpointName).Context(ctx).Do()
-	if err != nil && !isNotFoundError(err) {
-		return false, fmt.Errorf("failed to delete PSC endpoint: %w", err)
-	}
+	if err != nil {
+		if isNotFoundError(err) {
+			// PSC endpoint already deleted, consider it completed
+			log.Info("PSC endpoint not found, deletion already completed", "name", endpointName)
+		} else {
+			return false, fmt.Errorf("failed to delete PSC endpoint: %w", err)
+		}
+	} else {
+		// Check operation status (following management-side pattern)
+		if op != nil && op.Status == "RUNNING" {
+			log.Info("PSC endpoint deletion in progress", "operation", op.Name)
+			return false, nil // Not completed yet
+		}
 
-	if op != nil && op.Status == "RUNNING" {
-		log.Info("PSC endpoint deletion in progress", "operation", op.Name)
-		return false, nil // Not completed yet
+		log.Info("PSC endpoint deletion completed", "name", endpointName)
 	}
 
 	// Delete reserved IP address
@@ -380,6 +402,8 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 		_, err := customerGCPClient.Addresses.Delete(customerProject, region, ipName).Context(ctx).Do()
 		if err != nil && !isNotFoundError(err) {
 			log.Error(err, "failed to delete reserved IP, continuing with cleanup")
+		} else {
+			log.Info("Reserved IP address deleted", "name", ipName)
 		}
 	}
 
