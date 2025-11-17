@@ -224,5 +224,4 @@ go test ./test/integration/gcp_test.go -v
 
 - [CAPG Documentation](https://cluster-api-gcp.sigs.k8s.io/)
 - [GCP Resource Naming Standards](https://google.aip.dev/122)
-- [HyperShift Platform Development Guide](../contribute/onboard-a-platform.md)
 - [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation)
