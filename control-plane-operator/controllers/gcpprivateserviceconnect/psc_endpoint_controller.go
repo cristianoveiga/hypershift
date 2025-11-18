@@ -23,17 +23,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"k8s.io/client-go/util/workqueue"
 )
 
 const (
-	pscEndpointFinalizer                   = "hypershift.openshift.io/gcp-psc-customer"
-	pscEndpointDeletionRequeueDuration     = 5 * time.Second // Match AWS pattern
+	pscEndpointFinalizer               = "hypershift.openshift.io/gcp-psc-customer"
+	pscEndpointDeletionRequeueDuration = 5 * time.Second // Match AWS pattern
 )
 
 // gcpClientBuilder manages GCP client creation with HCP configuration
@@ -519,64 +519,31 @@ func isNotFoundError(err error) bool {
 	return false
 }
 
-// InitCustomerGCPClient initializes the GCP client for customer project operations
+// InitCustomerGCPClient initializes the GCP client for customer project operations using WIF
 func InitCustomerGCPClient(ctx context.Context, customerProject string, controlPlaneOperatorGSA string) (*compute.Service, error) {
-	// For GCP-198 implementation, we'll use these approaches in order:
-	// Option A: Use controlPlaneOperatorGSA from RolesRef (when WIF is fully implemented)
-	// Option B: Use service account key from secret (immediate approach)
-
-	// Option A: WIF-based authentication (future implementation)
-	// TODO: Uncomment when RolesRef field is added to GCPPlatformSpec
-	// if controlPlaneOperatorGSA != "" {
-	//     return initWIFClient(ctx, customerProject, controlPlaneOperatorGSA)
-	// }
-
-	// Option B: Service Account Key authentication (immediate implementation)
-	return initServiceAccountClient(ctx)
-}
-
-// Service Account Key authentication (immediate approach)
-func initServiceAccountClient(ctx context.Context) (*compute.Service, error) {
-	// Look for gcp-customer-credentials secret mounted at standard path
-	credentialsPath := "/etc/gcp/service-account.json"
-	if _, err := os.Stat(credentialsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("gcp-customer-credentials secret not found at %s", credentialsPath)
+	credentialsFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credentialsFile == "" {
+		return nil, fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS not set")
 	}
 
-	// Create client with service account key from secret
-	client, err := google.DefaultClient(ctx, compute.ComputeScope)
+	// Verify credentials file exists and is readable
+	if _, err := os.Stat(credentialsFile); err != nil {
+		return nil, fmt.Errorf("credentials file not accessible at %s: %w", credentialsFile, err)
+	}
+
+	// Create Google Cloud client using the credentials file from environment
+	// google.DefaultClient() automatically reads GOOGLE_APPLICATION_CREDENTIALS
+	// This supports both service account keys and WIF credential files
+	client, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create service account client: %w", err)
+		return nil, fmt.Errorf("failed to create Google Cloud client using %s: %w", credentialsFile, err)
 	}
 
-	service, err := compute.NewService(ctx, option.WithHTTPClient(client))
+	// Create the Compute Engine service
+	computeService, err := compute.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Compute service: %w", err)
+		return nil, fmt.Errorf("failed to create Compute Engine service: %w", err)
 	}
 
-	return service, nil
-}
-
-// Future WIF-based authentication (when WIF integration is complete)
-func initWIFClient(ctx context.Context, projectID, gsaEmail string) (*compute.Service, error) {
-	// This will be implemented following the WIF integration pattern
-	// Similar to: gcp-wif-integration.md credential file approach
-
-	credentialFile := fmt.Sprintf(`{
-        "type": "external_account",
-        "audience": "//iam.googleapis.com/projects/%s/locations/global/workloadIdentityPools/%s/providers/%s",
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-        "token_url": "https://sts.googleapis.com/v1/token",
-        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken",
-        "credential_source": {
-            "file": "/var/run/secrets/openshift/serviceaccount/token"
-        }
-    }`, projectID, "POOL_ID", "PROVIDER_ID", gsaEmail)
-
-	// Create temporary credential file and use with Google client
-	// Implementation details follow WIF integration pattern
-	_ = credentialFile // Suppress unused variable warning for now
-
-	// Placeholder - actual implementation will be added when WIF is available
-	return nil, fmt.Errorf("WIF authentication not yet implemented")
+	return computeService, nil
 }
