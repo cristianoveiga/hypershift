@@ -123,7 +123,7 @@ type GCPPrivateServiceConnectStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Service Attachment",type="string",JSONPath=".status.serviceAttachmentName",description="Name of the Service Attachment"
 // +kubebuilder:printcolumn:name="Endpoint IP",type="string",JSONPath=".status.endpointIP",description="IP address of the PSC endpoint"
-// +kubebuilder:printcolumn:name="Available",type="string",JSONPath=".status.conditions[?(@.type==\"GCPPrivateServiceConnectAvailable\")].status",description="Overall PSC availability status"
+// +kubebuilder:printcolumn:name="Available",type="string",JSONPath=".status.conditions[?(@.type==\"GCPEndpointAvailable\")].status",description="PSC endpoint availability status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +openshift:enable:FeatureGate=GCPPlatform
 
