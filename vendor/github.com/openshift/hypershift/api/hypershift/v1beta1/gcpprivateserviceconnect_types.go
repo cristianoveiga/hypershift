@@ -36,6 +36,20 @@ const (
 	GCPErrorReason   string = "GCPError"
 )
 
+// DNSZoneStatus represents a single DNS zone and its records
+type DNSZoneStatus struct {
+	// name is the DNS zone name
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// records lists the DNS records created in this zone
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:items:MaxLength=253
+	Records []string `json:"records,omitempty"`
+}
+
 // GCPPrivateServiceConnectSpec defines the desired state of PSC infrastructure
 type GCPPrivateServiceConnectSpec struct {
 	// loadBalancerIP is the IP address of the Internal Load Balancer
@@ -105,16 +119,10 @@ type GCPPrivateServiceConnectStatus struct {
 	// +kubebuilder:validation:MaxLength=45
 	EndpointIP string `json:"endpointIP,omitempty"`
 
-	// dnsZoneName is the private DNS zone name
+	// dnsZones contains DNS zone information created for this cluster
 	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	DNSZoneName string `json:"dnsZoneName,omitempty"`
-
-	// dnsRecords lists the created DNS A records
-	// +optional
-	// +kubebuilder:validation:MaxItems=10
-	// +kubebuilder:validation:items:MaxLength=253
-	DNSRecords []string `json:"dnsRecords,omitempty"`
+	// +kubebuilder:validation:MaxItems=5
+	DNSZones []DNSZoneStatus `json:"dnsZones,omitempty"`
 }
 
 // +genclient

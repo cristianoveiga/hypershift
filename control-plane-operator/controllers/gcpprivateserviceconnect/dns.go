@@ -56,10 +56,10 @@ func isNotFound(err error) bool {
 
 // zoneNames contains the generated DNS zone names for a cluster.
 type zoneNames struct {
-	hypershiftLocalZoneName  string
-	publicIngressZoneName    string
-	privateIngressZoneName   string
-	ingressDNSName           string
+	hypershiftLocalZoneName string
+	publicIngressZoneName   string
+	privateIngressZoneName  string
+	ingressDNSName          string
 }
 
 // createZone is the unified zone creation function supporting both private and public zones.
@@ -228,10 +228,10 @@ func generateZoneNames(clusterName, baseDomain string) zoneNames {
 	baseZoneName := strings.ReplaceAll(baseDomain, ".", "-")
 
 	return zoneNames{
-		hypershiftLocalZoneName:  fmt.Sprintf("%s-hypershift-local", clusterName),
-		publicIngressZoneName:    fmt.Sprintf("in-%s-public", baseZoneName),
-		privateIngressZoneName:   fmt.Sprintf("in-%s-private", baseZoneName),
-		ingressDNSName:           ensureDNSDot(fmt.Sprintf("in.%s", baseDomain)),
+		hypershiftLocalZoneName: fmt.Sprintf("%s-hypershift-local", clusterName),
+		publicIngressZoneName:   fmt.Sprintf("in-%s-public", baseZoneName),
+		privateIngressZoneName:  fmt.Sprintf("in-%s-private", baseZoneName),
+		ingressDNSName:          ensureDNSDot(fmt.Sprintf("in.%s", baseDomain)),
 	}
 }
 
@@ -254,6 +254,18 @@ type DNSSetupResult struct {
 	// Example: ["ns-cloud-a1.googledomains.com.", "ns-cloud-a2.googledomains.com.", ...]
 	// Note: Private zones don't need delegation - they're only accessible within the VPC.
 	PublicIngressNSRecords []string
+
+	// HypershiftLocalCreatedRecords contains FQDNs of records created in hypershift.local zone
+	// Example: ["api.{cluster}.hypershift.local.", "*.apps.{cluster}.hypershift.local."]
+	HypershiftLocalCreatedRecords []string
+
+	// PublicIngressCreatedRecords contains FQDNs of records created in public ingress zone
+	// Example: ["*.apps.{cluster}.in.{baseDomain}."]
+	PublicIngressCreatedRecords []string
+
+	// PrivateIngressCreatedRecords contains FQDNs of records created in private ingress zone
+	// Example: ["*.apps.{cluster}.in.{baseDomain}."]
+	PrivateIngressCreatedRecords []string
 }
 
 // createZonesIfNeeded creates DNS zones when createDnsZones is enabled.
@@ -329,6 +341,12 @@ func reconcileRecords(ctx context.Context, svc *dns.Service, projectID, hypershi
 	apiRecordName := fmt.Sprintf("api.%s", hypershiftDNSName)
 	if err := createARecord(ctx, svc, projectID, hypershiftZone, apiRecordName, pscEndpointIP, 60); err != nil {
 		return fmt.Errorf("failed to reconcile api A record: %w", err)
+	}
+
+	// Create *.apps A record in hypershift.local zone pointing to PSC endpoint
+	appsRecordName := fmt.Sprintf("*.apps.%s", hypershiftDNSName)
+	if err := createARecord(ctx, svc, projectID, hypershiftZone, appsRecordName, pscEndpointIP, 60); err != nil {
+		return fmt.Errorf("failed to reconcile apps A record: %w", err)
 	}
 
 	return nil
@@ -436,13 +454,30 @@ func ReconcileDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane, pscEndpo
 		return nil, err
 	}
 
-	// Return result with zone information
+	// Build lists of created records for status population
+	apiRecordName := fmt.Sprintf("api.%s", hypershiftDNSName)
+	appsRecordName := fmt.Sprintf("*.apps.%s", hypershiftDNSName)
+	acmeRecordName := fmt.Sprintf("_acme-challenge.apps.%s", names.ingressDNSName)
+
+	hypershiftLocalCreatedRecords := []string{
+		apiRecordName,
+		appsRecordName,
+	}
+
+	publicIngressCreatedRecords := []string{
+		acmeRecordName,
+	}
+
+	// Return result with zone information and created records
 	return &DNSSetupResult{
-		HypershiftLocalZone:    hypershiftLocalZone,
-		PublicIngressZone:      publicIngressZone,
-		PrivateIngressZone:     privateIngressZone,
-		IngressDNSName:         names.ingressDNSName,
-		PublicIngressNSRecords: publicNSRecords,
+		HypershiftLocalZone:           hypershiftLocalZone,
+		PublicIngressZone:             publicIngressZone,
+		PrivateIngressZone:            privateIngressZone,
+		IngressDNSName:                names.ingressDNSName,
+		PublicIngressNSRecords:        publicNSRecords,
+		HypershiftLocalCreatedRecords: hypershiftLocalCreatedRecords,
+		PublicIngressCreatedRecords:   publicIngressCreatedRecords,
+		PrivateIngressCreatedRecords:  []string{}, // Currently no records created in private zone
 	}, nil
 }
 

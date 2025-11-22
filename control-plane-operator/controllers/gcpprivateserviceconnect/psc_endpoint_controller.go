@@ -187,7 +187,12 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 	}
 
 	// 10. Reconcile PSC Endpoint
-	return r.reconcilePSCEndpoint(ctx, gcpPSC, hcp, customerGCPClient, customerProject, region, log)
+	if result, err := r.reconcilePSCEndpoint(ctx, gcpPSC, hcp, customerGCPClient, customerProject, region, log); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	// 11. Reconcile DNS zones and records (after PSC endpoint is available)
+	return r.reconcileDNS(ctx, gcpPSC, hcp, log)
 }
 
 // isServiceAttachmentReady checks if the management-side Service Attachment is ready
@@ -372,6 +377,14 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 	customerProject := r.gcpClientBuilder.customerProject
 	region := r.gcpClientBuilder.region
 
+	// Clean up DNS zones and records using zone names from PSC status (following AWS blocking pattern)
+	log.Info("Cleaning up DNS zones and records")
+	if dnsErr := r.cleanupDNS(ctx, gcpPSC); dnsErr != nil {
+		log.Error(dnsErr, "failed to clean up DNS zones")
+		return false, fmt.Errorf("failed to clean up DNS zones: %w", dnsErr)
+	}
+	log.Info("DNS cleanup completed successfully")
+
 	// Delete PSC endpoint (following management-side GCP pattern)
 	endpointName := r.constructEndpointName(gcpPSC)
 	log.Info("Deleting PSC endpoint", "name", endpointName)
@@ -408,6 +421,134 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 	}
 
 	return true, nil // Deletion completed
+}
+
+// reconcileDNS reconciles DNS zones and records after PSC endpoint is available
+func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hcp *hyperv1.HostedControlPlane, log logr.Logger) (ctrl.Result, error) {
+	// Check if DNS zones should be managed
+	if hcp.Spec.Platform.GCP.CreateDnsZones == nil || !*hcp.Spec.Platform.GCP.CreateDnsZones {
+		log.Info("DNS zone management disabled, skipping DNS reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	// Ensure PSC endpoint is available before creating DNS records
+	endpointAvailable := false
+	for _, condition := range gcpPSC.Status.Conditions {
+		if condition.Type == string(hyperv1.GCPEndpointAvailable) && condition.Status == metav1.ConditionTrue {
+			endpointAvailable = true
+			break
+		}
+	}
+
+	if !endpointAvailable {
+		log.Info("PSC endpoint not available yet, skipping DNS reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	if gcpPSC.Status.EndpointIP == "" {
+		log.Info("PSC endpoint IP not available yet, skipping DNS reconciliation")
+		return ctrl.Result{}, nil
+	}
+
+	log.Info("Reconciling DNS zones and records", "endpointIP", gcpPSC.Status.EndpointIP)
+
+	// Save current status for comparison
+	patch := client.MergeFrom(gcpPSC.DeepCopy())
+
+	// Call the existing ReconcileDNS function from dns.go
+	dnsResult, err := ReconcileDNS(ctx, hcp, gcpPSC.Status.EndpointIP)
+	if err != nil {
+		log.Error(err, "Failed to reconcile DNS zones and records")
+
+		// Set GCPDNSAvailable condition to False
+		meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
+			Type:               string(hyperv1.GCPDNSAvailable),
+			Status:             metav1.ConditionFalse,
+			Reason:             hyperv1.GCPErrorReason,
+			Message:            fmt.Sprintf("DNS reconciliation failed: %s", err.Error()),
+			LastTransitionTime: metav1.Now(),
+		})
+
+		if statusErr := r.Status().Patch(ctx, gcpPSC, patch); statusErr != nil {
+			log.Error(statusErr, "failed to update DNS condition after error")
+		}
+
+		return ctrl.Result{RequeueAfter: time.Minute * 2}, nil
+	}
+
+	// Update status fields with DNS information using new DNSZones structure
+	gcpPSC.Status.DNSZones = []hyperv1.DNSZoneStatus{
+		{
+			Name:    dnsResult.HypershiftLocalZone.Name,
+			Records: dnsResult.HypershiftLocalCreatedRecords,
+		},
+		{
+			Name:    dnsResult.PublicIngressZone.Name,
+			Records: dnsResult.PublicIngressCreatedRecords,
+		},
+		{
+			Name:    dnsResult.PrivateIngressZone.Name,
+			Records: dnsResult.PrivateIngressCreatedRecords,
+		},
+	}
+
+	// Set GCPDNSAvailable condition to True
+	meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
+		Type:               string(hyperv1.GCPDNSAvailable),
+		Status:             metav1.ConditionTrue,
+		Reason:             hyperv1.GCPSuccessReason,
+		Message:            "DNS zones and records successfully created",
+		LastTransitionTime: metav1.Now(),
+	})
+
+	// Update status with DNS information
+	if err := r.Status().Patch(ctx, gcpPSC, patch); err != nil {
+		log.Error(err, "failed to update status with DNS information")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("DNS reconciliation completed successfully", "zones", len(gcpPSC.Status.DNSZones))
+	return ctrl.Result{}, nil
+}
+
+// cleanupDNS cleans up DNS zones using zone names stored in PSC status
+// This allows reliable DNS cleanup using actual zone information from when zones were created
+func (r *GCPPrivateServiceConnectReconciler) cleanupDNS(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) error {
+	// Check if we have zone information in status
+	if len(gcpPSC.Status.DNSZones) == 0 {
+		return nil // No DNS zones to clean up
+	}
+
+	// Check if we have the customer project for cleanup
+	if !r.gcpClientBuilder.initialized || r.gcpClientBuilder.customerProject == "" {
+		return nil // Cannot clean up without project information
+	}
+
+	customerProject := r.gcpClientBuilder.customerProject
+
+	// Create DNS client for cleanup operations
+	svc, err := newDNSClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create DNS client for cleanup: %w", err)
+	}
+
+	// Delete each zone stored in status
+	var errs []error
+	for _, zoneStatus := range gcpPSC.Status.DNSZones {
+		if zoneStatus.Name == "" {
+			continue // Skip empty zone names
+		}
+
+		if err := deleteZone(ctx, svc, customerProject, zoneStatus.Name); err != nil {
+			errs = append(errs, fmt.Errorf("failed to delete DNS zone %s: %w", zoneStatus.Name, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("DNS zone cleanup errors: %v", errs)
+	}
+
+	return nil
 }
 
 // Helper functions for resource naming and URL construction
