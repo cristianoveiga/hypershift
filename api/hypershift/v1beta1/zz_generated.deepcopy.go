@@ -1490,6 +1490,11 @@ func (in *GCPNetworkConfig) DeepCopy() *GCPNetworkConfig {
 func (in *GCPPlatformSpec) DeepCopyInto(out *GCPPlatformSpec) {
 	*out = *in
 	out.NetworkConfig = in.NetworkConfig
+	if in.CreateDnsZones != nil {
+		in, out := &in.CreateDnsZones, &out.CreateDnsZones
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ResourceLabels != nil {
 		in, out := &in.ResourceLabels, &out.ResourceLabels
 		*out = make([]GCPResourceLabel, len(*in))
