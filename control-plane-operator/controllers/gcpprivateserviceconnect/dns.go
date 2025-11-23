@@ -51,7 +51,9 @@ func isNotFound(err error) bool {
 	if apiErr, ok := err.(*googleapi.Error); ok {
 		return apiErr.Code == 404 // HTTP 404 Not Found
 	}
-	return false
+	// Fallback: check if error message contains "404" or "not found" patterns
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "error 404") || strings.Contains(errStr, "notfound") || strings.Contains(errStr, "not found")
 }
 
 // zoneNames contains the generated DNS zone names for a cluster.
@@ -120,8 +122,55 @@ func getZone(ctx context.Context, svc *dns.Service, projectID, zoneName string) 
 	return zone, nil
 }
 
+// deleteAllRecordsFromZone deletes all custom DNS records from a zone.
+// SOA and NS records are managed by Google and cannot be deleted.
+func deleteAllRecordsFromZone(ctx context.Context, svc *dns.Service, projectID, zoneName string) error {
+	// List all records in the zone
+	rrsets, err := svc.ResourceRecordSets.List(projectID, zoneName).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to list records in zone %s: %w", zoneName, err)
+	}
+
+	var recordsToDelete []*dns.ResourceRecordSet
+	for _, record := range rrsets.Rrsets {
+		// Skip SOA and NS records - these are managed by Google and cannot be deleted
+		if record.Type == "SOA" || record.Type == "NS" {
+			continue
+		}
+		recordsToDelete = append(recordsToDelete, record)
+	}
+
+	// If there are no custom records to delete, we're done
+	if len(recordsToDelete) == 0 {
+		return nil
+	}
+
+	// Delete all custom records in a single change
+	change := &dns.Change{
+		Deletions: recordsToDelete,
+	}
+
+	_, err = svc.Changes.Create(projectID, zoneName, change).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("failed to delete custom records from zone %s: %w", zoneName, err)
+	}
+
+	return nil
+}
+
 // deleteZone deletes a Cloud DNS zone.
+// It first removes all custom records, then deletes the zone.
 func deleteZone(ctx context.Context, svc *dns.Service, projectID, zoneName string) error {
+	// First, try to delete all custom records from the zone
+	if err := deleteAllRecordsFromZone(ctx, svc, projectID, zoneName); err != nil {
+		// If zone doesn't exist, that's fine - it's already deleted
+		if isNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to clean up records before deleting zone %s: %w", zoneName, err)
+	}
+
+	// Now delete the zone itself
 	err := svc.ManagedZones.Delete(projectID, zoneName).Context(ctx).Do()
 	if err != nil {
 		if isNotFound(err) {
@@ -222,15 +271,31 @@ func createARecord(ctx context.Context, svc *dns.Service, projectID, zoneName, r
 	})
 }
 
+// truncateName truncates a name to fit GCP DNS zone naming constraints:
+// - Maximum 63 characters
+// - Must contain only lowercase letters, numbers, and hyphens
+// - Must start with a letter
+func truncateName(name string, maxLen int) string {
+	if len(name) <= maxLen {
+		return name
+	}
+	return name[:maxLen]
+}
+
 // generateZoneNames generates Cloud DNS zone names and DNS names from cluster name and base domain.
 func generateZoneNames(clusterName, baseDomain string) zoneNames {
 	// Convert base domain to zone name format (dots -> hyphens)
 	baseZoneName := strings.ReplaceAll(baseDomain, ".", "-")
 
+	// GCP DNS zone names must be <= 63 characters
+	// Leave room for prefixes/suffixes: "in-" (3) + "-public" (7) = 10 chars
+	maxBaseNameLen := 63 - 10
+	baseZoneName = truncateName(baseZoneName, maxBaseNameLen)
+
 	return zoneNames{
-		hypershiftLocalZoneName: fmt.Sprintf("%s-hypershift-local", clusterName),
-		publicIngressZoneName:   fmt.Sprintf("in-%s-public", baseZoneName),
-		privateIngressZoneName:  fmt.Sprintf("in-%s-private", baseZoneName),
+		hypershiftLocalZoneName: truncateName(fmt.Sprintf("%s-hypershift-local", clusterName), 63),
+		publicIngressZoneName:   truncateName(fmt.Sprintf("in-%s-public", baseZoneName), 63),
+		privateIngressZoneName:  truncateName(fmt.Sprintf("in-%s-private", baseZoneName), 63),
 		ingressDNSName:          ensureDNSDot(fmt.Sprintf("in.%s", baseDomain)),
 	}
 }
