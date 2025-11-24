@@ -9,6 +9,8 @@ import (
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
+	"github.com/openshift/hypershift/support/config"
 	"github.com/openshift/hypershift/support/upsert"
 	"github.com/openshift/hypershift/support/util"
 
@@ -18,10 +20,12 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,6 +38,7 @@ import (
 const (
 	pscEndpointFinalizer               = "hypershift.openshift.io/gcp-psc-customer"
 	pscEndpointDeletionRequeueDuration = 5 * time.Second // Match AWS pattern
+	externalPrivateServiceLabelGCP     = "hypershift.openshift.io/gcp-psc-external-private-svc"
 )
 
 // gcpClientBuilder manages GCP client creation with HCP configuration
@@ -192,7 +197,12 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 	}
 
 	// 11. Reconcile DNS zones and records (after PSC endpoint is available)
-	return r.reconcileDNS(ctx, gcpPSC, hcp, log)
+	if result, err := r.reconcileDNS(ctx, gcpPSC, hcp, log); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	// 12. Reconcile external-dns services for private clusters with external names
+	return r.reconcileExternalServices(ctx, gcpPSC, hcp, log)
 }
 
 // isServiceAttachmentReady checks if the management-side Service Attachment is ready
@@ -687,4 +697,96 @@ func InitCustomerGCPClient(ctx context.Context, customerProject string, controlP
 	}
 
 	return computeService, nil
+}
+
+// reconcileExternalServices creates external-dns services for private clusters with external names
+// This enables external-dns to create DNS records for private PSC endpoints with custom hostnames
+func (r *GCPPrivateServiceConnectReconciler) reconcileExternalServices(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hcp *hyperv1.HostedControlPlane, log logr.Logger) (ctrl.Result, error) {
+	if isPublic, externalNames := util.IsPublicHCP(hcp), hcpExternalNamesGCP(hcp); !isPublic && len(externalNames) > 0 {
+		// Only if not public and external names are configured, create services of type ExternalName so external-dns
+		// can create records for them
+		var errs []error
+		for svcType, externalName := range externalNames {
+			var svc *corev1.Service
+			switch svcType {
+			case "api":
+				svc = manifests.KubeAPIServerExternalPrivateService(hcp.Namespace)
+			case "oauth":
+				svc = manifests.OauthServerExternalPrivateService(hcp.Namespace)
+			}
+			if _, err := r.CreateOrUpdate(ctx, r, svc, func() error {
+				log.Info("Reconciling external name service for GCP PSC", "service", svc.Name, "externalName", externalName)
+				return reconcileExternalServiceGCP(svc, hcp, externalName, gcpPSC.Status.EndpointIP)
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("failed to reconcile %s external service: %w", svcType, err))
+			}
+		}
+		if len(errs) > 0 {
+			return ctrl.Result{}, fmt.Errorf("failed to create external services for private PSC endpoints: %w", utilerrors.NewAggregate(errs))
+		}
+	} else {
+		// If the cluster is public, ensure that any ExternalName services are removed
+		privateExternalServices := &corev1.ServiceList{}
+		if err := r.List(ctx, privateExternalServices, client.HasLabels{externalPrivateServiceLabelGCP}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("cannot list private external services: %w", err)
+		}
+		if len(privateExternalServices.Items) > 0 {
+			log.Info("Removing private external services for GCP PSC", "count", len(privateExternalServices.Items))
+			var errs []error
+			for i := range privateExternalServices.Items {
+				svc := &privateExternalServices.Items[i]
+				if err := r.Delete(ctx, svc); err != nil {
+					errs = append(errs, fmt.Errorf("failed to delete private external service %s: %w", svc.Name, err))
+				}
+			}
+			if len(errs) > 0 {
+				return ctrl.Result{}, utilerrors.NewAggregate(errs)
+			}
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// hcpExternalNamesGCP extracts external hostnames from HCP configuration for GCP
+func hcpExternalNamesGCP(hcp *hyperv1.HostedControlPlane) map[string]string {
+	result := map[string]string{}
+	apiStrategy := util.ServicePublishingStrategyByTypeForHCP(hcp, hyperv1.APIServer)
+	if apiStrategy != nil && apiStrategy.Type == hyperv1.Route && apiStrategy.Route != nil && apiStrategy.Route.Hostname != "" {
+		result["api"] = apiStrategy.Route.Hostname
+	}
+
+	oauthStrategy := util.ServicePublishingStrategyByTypeForHCP(hcp, hyperv1.OAuthServer)
+	if oauthStrategy != nil && oauthStrategy.Type == hyperv1.Route && oauthStrategy.Route != nil && oauthStrategy.Route.Hostname != "" {
+		result["oauth"] = oauthStrategy.Route.Hostname
+	}
+	return result
+}
+
+// reconcileExternalServiceGCP configures external service for GCP PSC endpoint integration
+func reconcileExternalServiceGCP(svc *corev1.Service, hcp *hyperv1.HostedControlPlane, hostName, targetIP string) error {
+	ownerRef := config.OwnerRefFrom(hcp)
+	ownerRef.ApplyTo(svc)
+	if svc.Labels == nil {
+		svc.Labels = map[string]string{}
+	}
+	if svc.Annotations == nil {
+		svc.Annotations = map[string]string{}
+	}
+	svc.Labels[externalPrivateServiceLabelGCP] = "true"
+	svc.Annotations[hyperv1.ExternalDNSHostnameAnnotation] = hostName
+
+	// For GCP PSC, we point external-dns to the PSC endpoint IP
+	// external-dns will create A records pointing to this IP
+	svc.Spec.Type = corev1.ServiceTypeExternalName
+	svc.Spec.ExternalName = targetIP
+	svc.Spec.Ports = []corev1.ServicePort{
+		{
+			Name:     "https",
+			Port:     443,
+			Protocol: corev1.ProtocolTCP,
+		},
+	}
+
+	return nil
 }
