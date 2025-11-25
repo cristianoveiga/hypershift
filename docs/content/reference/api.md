@@ -6127,22 +6127,6 @@ and internal communication (hypershift.local).</p>
 </tr>
 <tr>
 <td>
-<code>clusterDNSZoneBaseDomain</code></br>
-<em>
-string
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>clusterDNSZoneBaseDomain is the base domain for cluster DNS zones.
-Format: {cluster}-{random4}.{region}-{random6}-1.{env}.gcp-hcp.openshiftapps.com
-Example: &ldquo;my-cluster-a1b2.us-central1-xyz789-1.dev.gcp-hcp.openshiftapps.com&rdquo;
-This is set by the cluster provisioner (CLS) during cluster creation and is used
-to construct the DNS zone names for ingress (in.{clusterDNSZoneBaseDomain}).</p>
-</td>
-</tr>
-<tr>
-<td>
 <code>resourceLabels</code></br>
 <em>
 <a href="#hypershift.openshift.io/v1beta1.GCPResourceLabel">

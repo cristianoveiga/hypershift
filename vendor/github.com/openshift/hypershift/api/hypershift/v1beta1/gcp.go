@@ -131,16 +131,6 @@ type GCPPlatformSpec struct {
 	// +optional
 	CreateDnsZones *bool `json:"createDnsZones,omitempty"`
 
-	// clusterDNSZoneBaseDomain is the base domain for cluster DNS zones.
-	// Format: {cluster}-{random4}.{region}-{random6}-1.{env}.gcp-hcp.openshiftapps.com
-	// Example: "my-cluster-a1b2.us-central1-xyz789-1.dev.gcp-hcp.openshiftapps.com"
-	// This is set by the cluster provisioner (CLS) during cluster creation and is used
-	// to construct the DNS zone names for ingress (in.{clusterDNSZoneBaseDomain}).
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`
-	ClusterDNSZoneBaseDomain string `json:"clusterDNSZoneBaseDomain,omitempty"`
-
 	// resourceLabels are applied to all GCP resources created for the cluster.
 	// Labels are key-value pairs used for organizing and managing GCP resources.
 	// Changes to this field will be propagated in-place to GCP resources where supported.

@@ -425,8 +425,8 @@ func validateReconcileInput(hcp *hyperv1.HostedControlPlane, pscEndpointIP strin
 
 	gcpSpec := hcp.Spec.Platform.GCP
 
-	if gcpSpec.ClusterDNSZoneBaseDomain == "" {
-		return fmt.Errorf("clusterDNSZoneBaseDomain is required")
+	if hcp.Spec.DNS.BaseDomain == "" {
+		return fmt.Errorf("DNS baseDomain is required")
 	}
 	if gcpSpec.Project == "" {
 		return fmt.Errorf("GCP project is required")
@@ -482,7 +482,7 @@ func ReconcileDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane, pscEndpo
 
 	// Extract configuration
 	clusterName := hcp.Name
-	baseDomain := gcpSpec.ClusterDNSZoneBaseDomain
+	baseDomain := hcp.Spec.DNS.BaseDomain
 	projectID := gcpSpec.Project
 	vpcNetwork := gcpSpec.NetworkConfig.Network.Name
 
@@ -575,12 +575,12 @@ func DeleteDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
 		return nil // Zones not managed by us, skip cleanup
 	}
 
-	if gcpSpec.ClusterDNSZoneBaseDomain == "" || gcpSpec.Project == "" {
+	if hcp.Spec.DNS.BaseDomain == "" || gcpSpec.Project == "" {
 		return nil // Can't determine what to delete
 	}
 
 	clusterName := hcp.Name
-	baseDomain := gcpSpec.ClusterDNSZoneBaseDomain
+	baseDomain := hcp.Spec.DNS.BaseDomain
 	projectID := gcpSpec.Project
 
 	// Generate zone names
