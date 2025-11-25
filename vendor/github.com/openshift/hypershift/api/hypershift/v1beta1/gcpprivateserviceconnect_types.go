@@ -48,6 +48,13 @@ type DNSZoneStatus struct {
 	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:items:MaxLength=253
 	Records []string `json:"records,omitempty"`
+
+	// managedByOperator indicates if this zone is managed by the control plane operator.
+	// When true, the zone will be deleted during cluster cleanup.
+	// When false, the zone is externally managed and will not be deleted.
+	// +optional
+	// +kubebuilder:default=false
+	ManagedByOperator bool `json:"managedByOperator,omitempty"`
 }
 
 // GCPPrivateServiceConnectSpec defines the desired state of PSC infrastructure

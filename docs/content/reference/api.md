@@ -5578,6 +5578,20 @@ string
 <p>records lists the DNS records created in this zone</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>managedByOperator</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>managedByOperator indicates if this zone is managed by the control plane operator.
+When true, the zone will be deleted during cluster cleanup.
+When false, the zone is externally managed and will not be deleted.</p>
+</td>
+</tr>
 </tbody>
 </table>
 ###DataPlaneManagedIdentities { #hypershift.openshift.io/v1beta1.DataPlaneManagedIdentities }
