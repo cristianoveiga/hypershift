@@ -389,6 +389,7 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 
 	// Clean up DNS zones and records using zone names from PSC status (following AWS blocking pattern)
 	log.Info("Cleaning up DNS zones and records")
+
 	if dnsErr := r.cleanupDNS(ctx, gcpPSC); dnsErr != nil {
 		log.Error(dnsErr, "failed to clean up DNS zones")
 		return false, fmt.Errorf("failed to clean up DNS zones: %w", dnsErr)
@@ -435,9 +436,14 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDelete(ctx context.Context
 
 // reconcileDNS reconciles DNS zones and records after PSC endpoint is available
 func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hcp *hyperv1.HostedControlPlane, log logr.Logger) (ctrl.Result, error) {
-	// Check if DNS zones should be managed
-	if hcp.Spec.Platform.GCP.CreateDnsZones == nil || !*hcp.Spec.Platform.GCP.CreateDnsZones {
-		log.Info("DNS zone management disabled, skipping DNS reconciliation")
+	// DNS reconciliation should always run to manage records, regardless of CreateDnsZones setting
+	// The ReconcileDNS function in dns.go handles the CreateDnsZones logic internally:
+	// - true: Manages zones AND records (creates zones if missing)
+	// - false/nil: Assumes zones are externally managed, only ensures records exist
+
+	// Add nil safety checks
+	if hcp == nil || hcp.Spec.Platform.GCP == nil {
+		log.Info("Invalid HCP configuration for DNS reconciliation")
 		return ctrl.Result{}, nil
 	}
 
@@ -487,18 +493,27 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, g
 	}
 
 	// Update status fields with DNS information using new DNSZones structure
+	// Set ManagedByOperator based on CreateDnsZones setting
+	managedByOperator := false
+	if hcp.Spec.Platform.GCP.CreateDnsZones != nil && *hcp.Spec.Platform.GCP.CreateDnsZones {
+		managedByOperator = true
+	}
+
 	gcpPSC.Status.DNSZones = []hyperv1.DNSZoneStatus{
 		{
-			Name:    dnsResult.HypershiftLocalZone.Name,
-			Records: dnsResult.HypershiftLocalCreatedRecords,
+			Name:              dnsResult.HypershiftLocalZone.Name,
+			Records:           dnsResult.HypershiftLocalCreatedRecords,
+			ManagedByOperator: managedByOperator,
 		},
 		{
-			Name:    dnsResult.PublicIngressZone.Name,
-			Records: dnsResult.PublicIngressCreatedRecords,
+			Name:              dnsResult.PublicIngressZone.Name,
+			Records:           dnsResult.PublicIngressCreatedRecords,
+			ManagedByOperator: managedByOperator,
 		},
 		{
-			Name:    dnsResult.PrivateIngressZone.Name,
-			Records: dnsResult.PrivateIngressCreatedRecords,
+			Name:              dnsResult.PrivateIngressZone.Name,
+			Records:           dnsResult.PrivateIngressCreatedRecords,
+			ManagedByOperator: managedByOperator,
 		},
 	}
 
@@ -521,8 +536,9 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, g
 	return ctrl.Result{}, nil
 }
 
-// cleanupDNS cleans up DNS zones using zone names stored in PSC status
+// cleanupDNS cleans up DNS zones using zone names and management info stored in PSC status
 // This allows reliable DNS cleanup using actual zone information from when zones were created
+// Only deletes zones that have ManagedByOperator=true in their status
 func (r *GCPPrivateServiceConnectReconciler) cleanupDNS(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) error {
 	// Check if we have zone information in status
 	if len(gcpPSC.Status.DNSZones) == 0 {
@@ -542,15 +558,23 @@ func (r *GCPPrivateServiceConnectReconciler) cleanupDNS(ctx context.Context, gcp
 		return fmt.Errorf("failed to create DNS client for cleanup: %w", err)
 	}
 
-	// Delete each zone stored in status
+	// Clean up each zone based on management status
 	var errs []error
 	for _, zoneStatus := range gcpPSC.Status.DNSZones {
 		if zoneStatus.Name == "" {
 			continue // Skip empty zone names
 		}
 
-		if err := deleteZone(ctx, svc, customerProject, zoneStatus.Name); err != nil {
-			errs = append(errs, fmt.Errorf("failed to delete DNS zone %s: %w", zoneStatus.Name, err))
+		if zoneStatus.ManagedByOperator {
+			// Delete the entire zone (zone is managed by operator)
+			if err := deleteZone(ctx, svc, customerProject, zoneStatus.Name); err != nil {
+				errs = append(errs, fmt.Errorf("failed to delete managed DNS zone %s: %w", zoneStatus.Name, err))
+			}
+		} else {
+			// Delete only the records we created (zone is externally managed)
+			if err := deleteAllRecordsFromZone(ctx, svc, customerProject, zoneStatus.Name); err != nil {
+				errs = append(errs, fmt.Errorf("failed to delete records from external DNS zone %s: %w", zoneStatus.Name, err))
+			}
 		}
 	}
 

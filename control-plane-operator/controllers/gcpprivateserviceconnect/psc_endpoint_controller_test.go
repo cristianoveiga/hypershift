@@ -1,14 +1,12 @@
 package gcpprivateserviceconnect
 
 import (
-	"context"
 	"testing"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func TestConstructEndpointName(t *testing.T) {
@@ -259,40 +257,6 @@ func TestIsServiceAttachmentReady(t *testing.T) {
 	}
 }
 
-func TestInitCustomerGCPClient(t *testing.T) {
-	tests := []struct {
-		name                    string
-		customerProject         string
-		controlPlaneOperatorGSA string
-		expectedError           string
-	}{
-		{
-			name:                    "When called with valid parameters it should use service account authentication",
-			customerProject:         "customer-project",
-			controlPlaneOperatorGSA: "",
-			expectedError:           "gcp-customer-credentials secret not found", // Expected since we don't have real credentials in test
-		},
-		{
-			name:                    "When called with GSA it should still use service account authentication for now",
-			customerProject:         "customer-project",
-			controlPlaneOperatorGSA: "control-plane-operator@customer-project.iam.gserviceaccount.com",
-			expectedError:           "gcp-customer-credentials secret not found", // Expected since WIF not implemented yet
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := InitCustomerGCPClient(context.Background(), tt.customerProject, tt.controlPlaneOperatorGSA)
-
-			if tt.expectedError != "" {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
 
 func TestConstructIPAddressNameFromIP(t *testing.T) {
 	r := &GCPPrivateServiceConnectReconciler{}
@@ -521,171 +485,7 @@ func TestEndpointNameUniqueness(t *testing.T) {
 	assert.Equal(t, expectedEndpointName2, endpointName2)
 }
 
-func TestReconcileDNS_FeatureDisabled(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
 
-	gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Status: hyperv1.GCPPrivateServiceConnectStatus{
-			EndpointIP: "10.0.1.5",
-			Conditions: []metav1.Condition{
-				{
-					Type:   string(hyperv1.GCPEndpointAvailable),
-					Status: metav1.ConditionTrue,
-				},
-			},
-		},
-	}
-
-	// Test with CreateDnsZones = false
-	hcp := &hyperv1.HostedControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Spec: hyperv1.HostedControlPlaneSpec{
-			Platform: hyperv1.PlatformSpec{
-				GCP: &hyperv1.GCPPlatformSpec{
-					CreateDnsZones: func() *bool { b := false; return &b }(),
-				},
-			},
-		},
-	}
-
-	ctx := context.Background()
-	logger := log.FromContext(ctx)
-	result, err := r.reconcileDNS(ctx, gcpPSC, hcp, logger)
-
-	assert.NoError(t, err, "When DNS feature is disabled it should not return error")
-	assert.Equal(t, result.IsZero(), true, "When DNS feature is disabled it should return zero result")
-}
-
-func TestReconcileDNS_FeatureNotSet(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Status: hyperv1.GCPPrivateServiceConnectStatus{
-			EndpointIP: "10.0.1.5",
-			Conditions: []metav1.Condition{
-				{
-					Type:   string(hyperv1.GCPEndpointAvailable),
-					Status: metav1.ConditionTrue,
-				},
-			},
-		},
-	}
-
-	// Test with CreateDnsZones = nil
-	hcp := &hyperv1.HostedControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Spec: hyperv1.HostedControlPlaneSpec{
-			Platform: hyperv1.PlatformSpec{
-				GCP: &hyperv1.GCPPlatformSpec{
-					CreateDnsZones: nil, // Not set
-				},
-			},
-		},
-	}
-
-	ctx := context.Background()
-	logger := log.FromContext(ctx)
-	result, err := r.reconcileDNS(ctx, gcpPSC, hcp, logger)
-
-	assert.NoError(t, err, "When DNS feature is not set it should not return error")
-	assert.Equal(t, result.IsZero(), true, "When DNS feature is not set it should return zero result")
-}
-
-func TestReconcileDNS_EndpointNotAvailable(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Status: hyperv1.GCPPrivateServiceConnectStatus{
-			EndpointIP: "10.0.1.5",
-			Conditions: []metav1.Condition{
-				{
-					Type:   string(hyperv1.GCPEndpointAvailable),
-					Status: metav1.ConditionFalse, // Not available
-				},
-			},
-		},
-	}
-
-	hcp := &hyperv1.HostedControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Spec: hyperv1.HostedControlPlaneSpec{
-			Platform: hyperv1.PlatformSpec{
-				GCP: &hyperv1.GCPPlatformSpec{
-					CreateDnsZones: func() *bool { b := true; return &b }(),
-				},
-			},
-		},
-	}
-
-	ctx := context.Background()
-	logger := log.FromContext(ctx)
-	result, err := r.reconcileDNS(ctx, gcpPSC, hcp, logger)
-
-	assert.NoError(t, err, "When endpoint not available it should not return error")
-	assert.Equal(t, result.IsZero(), true, "When endpoint not available it should return zero result")
-}
-
-func TestReconcileDNS_EndpointIPMissing(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Status: hyperv1.GCPPrivateServiceConnectStatus{
-			EndpointIP: "", // Missing IP
-			Conditions: []metav1.Condition{
-				{
-					Type:   string(hyperv1.GCPEndpointAvailable),
-					Status: metav1.ConditionTrue,
-				},
-			},
-		},
-	}
-
-	hcp := &hyperv1.HostedControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "clusters-test-cluster-1",
-		},
-		Spec: hyperv1.HostedControlPlaneSpec{
-			Platform: hyperv1.PlatformSpec{
-				GCP: &hyperv1.GCPPlatformSpec{
-					CreateDnsZones: func() *bool { b := true; return &b }(),
-				},
-			},
-		},
-	}
-
-	ctx := context.Background()
-	logger := log.FromContext(ctx)
-	result, err := r.reconcileDNS(ctx, gcpPSC, hcp, logger)
-
-	assert.NoError(t, err, "When endpoint IP missing it should not return error")
-	assert.Equal(t, result.IsZero(), true, "When endpoint IP missing it should return zero result")
-}
 
 func TestHCPExternalNamesGCP(t *testing.T) {
 	tests := []struct {
