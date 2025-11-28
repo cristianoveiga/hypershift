@@ -103,6 +103,12 @@ func (p GCP) ReconcileCAPIInfraCR(ctx context.Context, c client.Client, createOr
 		return nil, fmt.Errorf("failed to reconcile GCPCluster: %w", err)
 	}
 
+	// Set Status.Ready = true following AWS/Azure patterns - CRITICAL for CAPI progression
+	gcpCluster.Status.Ready = true
+	if err := c.Status().Update(ctx, gcpCluster); err != nil {
+		return nil, fmt.Errorf("failed to update GCPCluster status: %w", err)
+	}
+
 	return gcpCluster, nil
 }
 
