@@ -11,7 +11,6 @@ import (
 	"github.com/openshift/hypershift/support/upsert"
 	supportutil "github.com/openshift/hypershift/support/util"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,9 +28,13 @@ import (
 
 const (
 	finalizer = "hypershift.openshift.io/gcp-private-service-connect"
+
+	// gcpAPITimeout is the timeout for individual GCP API calls to prevent hung reconcilers.
+	// GCP SDK has connection-level timeouts (dial: 30s, TLS: 10s) but no overall request timeout.
+	gcpAPITimeout = 30 * time.Second
 )
 
-// RBAC permissions for GCPPrivateServiceConnect controller
+// RBAC permissions for GCPPrivateServiceConnect controller (documentation only - not used for code generation)
 // +kubebuilder:rbac:groups=hypershift.openshift.io,resources=gcpprivateserviceconnects,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=hypershift.openshift.io,resources=gcpprivateserviceconnects/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=hypershift.openshift.io,resources=hostedclusters,verbs=get;list;watch
@@ -48,8 +51,8 @@ type GCPPrivateServiceConnectReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *GCPPrivateServiceConnectReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Initialize GCP Compute Service client (similar to AWS pattern)
-	gcpComputeService, err := InitGCPComputeService(context.TODO())
+	// Initialize GCP Compute Service client
+	gcpComputeService, err := InitGCPComputeService(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to initialize GCP Compute service: %w", err)
 	}
@@ -123,12 +126,8 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, r.Update(ctx, gcpPSC)
 	}
 
-	// 4. Find the hosted control plane and cluster (for normal reconciliation)
-	hcp, err := r.hostedControlPlane(ctx, gcpPSC.Namespace)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	hc, err := r.hostedCluster(ctx, hcp)
+	// 4. Find the hosted cluster using annotation (set by customer-side controller)
+	hc, err := r.hostedClusterFromAnnotation(ctx, gcpPSC)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get hosted cluster: %w", err)
 	}
@@ -158,9 +157,7 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileGCPPrivateServiceConnectSp
 		if err != nil {
 			return fmt.Errorf("failed to lookup ForwardingRule: %w", err)
 		}
-		if forwardingRuleName != "" {
-			gcpPSC.Spec.ForwardingRuleName = forwardingRuleName
-		}
+		gcpPSC.Spec.ForwardingRuleName = forwardingRuleName
 	}
 
 	// Set NAT Subnet if not already populated
@@ -179,11 +176,14 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileGCPPrivateServiceConnectSp
 func (r *GCPPrivateServiceConnectReconciler) lookupForwardingRuleName(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) (string, error) {
 	log := r.Log.WithValues("gcpprivateserviceconnect", gcpPSC.Name, "loadBalancerIP", gcpPSC.Spec.LoadBalancerIP)
 
-	// Use GCP Compute API filter syntax to find the forwarding rule by IP
-	filter := fmt.Sprintf("IPAddress eq %s", gcpPSC.Spec.LoadBalancerIP)
+	// Use AIP-160 filter syntax for exact string matching
+	filter := fmt.Sprintf(`IPAddress = "%s"`, gcpPSC.Spec.LoadBalancerIP)
+
+	apiCtx, cancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer cancel()
 
 	req := r.GcpClient.ForwardingRules.List(r.ProjectID, r.Region).Filter(filter)
-	resp, err := req.Context(ctx).Do()
+	resp, err := req.Context(apiCtx).Do()
 	if err != nil {
 		return "", fmt.Errorf("failed to list forwarding rules: %w", err)
 	}
@@ -207,9 +207,12 @@ func (r *GCPPrivateServiceConnectReconciler) lookupForwardingRuleName(ctx contex
 
 // isSubnetInUse checks if a subnet is already being used by existing Service Attachments
 func (r *GCPPrivateServiceConnectReconciler) isSubnetInUse(ctx context.Context, subnetName string) (bool, error) {
+	apiCtx, cancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer cancel()
+
 	// List all Service Attachments in the region
 	req := r.GcpClient.ServiceAttachments.List(r.ProjectID, r.Region)
-	resp, err := req.Context(ctx).Do()
+	resp, err := req.Context(apiCtx).Do()
 	if err != nil {
 		return false, fmt.Errorf("failed to list service attachments: %w", err)
 	}
@@ -240,23 +243,17 @@ func (r *GCPPrivateServiceConnectReconciler) discoverNATSubnet(ctx context.Conte
 	}
 
 	// 2. List subnets with PRIVATE_SERVICE_CONNECT purpose
+	apiCtx, cancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer cancel()
+
 	req := r.GcpClient.Subnetworks.List(r.ProjectID, r.Region)
-	resp, err := req.Context(ctx).Do()
+	resp, err := req.Context(apiCtx).Do()
 	if err != nil {
 		return "", fmt.Errorf("failed to list subnets: %w", err)
 	}
 
-	// 3. Find first available PRIVATE_SERVICE_CONNECT subnet that's not already in use
-	// We want subnet isolation between different Service Attachments for security
-	//
-	// Note: This approach still allows race conditions if multiple controllers
-	// are creating Service Attachments simultaneously (especially across different
-	// management clusters). Future improvements could include GCP-native subnet
-	// reservation mechanisms or external coordination systems.
-	//
-	// GCP subnet labels are not suitable for coordination as they are intended
-	// for static metadata/billing, not dynamic state management, and label updates
-	// are not atomic with Service Attachment creation operations.
+	// Find first available PRIVATE_SERVICE_CONNECT subnet not already in use.
+	// Race conditions are not a concern since we use a single management cluster per GCP project.
 	for _, subnet := range resp.Items {
 		if subnet.Purpose == "PRIVATE_SERVICE_CONNECT" {
 			// Check if this subnet is already in use by another Service Attachment
@@ -282,12 +279,14 @@ func (r *GCPPrivateServiceConnectReconciler) discoverNATSubnet(ctx context.Conte
 func (r *GCPPrivateServiceConnectReconciler) reconcileServiceAttachment(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hc *hyperv1.HostedCluster) (ctrl.Result, error) {
 	log := r.Log.WithValues("gcpprivateserviceconnect", gcpPSC.Name)
 
-	// 1. Construct unique Service Attachment name using PSC name + cluster ID + cluster name
-	// This prevents conflicts when multiple clusters have the same PSC resource name
-	serviceAttachmentName := r.constructServiceAttachmentName(gcpPSC, hc)
+	// 1. Construct unique Service Attachment name using cluster ID
+	serviceAttachmentName := r.constructServiceAttachmentName(hc)
 
 	// 2. Check if Service Attachment already exists
-	existingServiceAttachment, err := r.GcpClient.ServiceAttachments.Get(r.ProjectID, r.Region, serviceAttachmentName).Context(ctx).Do()
+	getCtx, getCancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer getCancel()
+
+	existingServiceAttachment, err := r.GcpClient.ServiceAttachments.Get(r.ProjectID, r.Region, serviceAttachmentName).Context(getCtx).Do()
 	if err != nil && !isNotFoundError(err) {
 		return ctrl.Result{}, fmt.Errorf("failed to get Service Attachment: %w", err)
 	}
@@ -297,7 +296,15 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileServiceAttachment(ctx cont
 		return r.updateStatusFromServiceAttachment(ctx, gcpPSC, existingServiceAttachment)
 	}
 
-	// 3. Create new Service Attachment
+	// 3. Validate required spec fields before creating Service Attachment
+	if gcpPSC.Spec.ForwardingRuleName == "" || gcpPSC.Spec.NATSubnet == "" {
+		log.Info("Required spec fields not yet populated, waiting for next reconciliation",
+			"forwardingRuleName", gcpPSC.Spec.ForwardingRuleName,
+			"natSubnet", gcpPSC.Spec.NATSubnet)
+		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+	}
+
+	// 4. Create new Service Attachment
 	serviceAttachment := &compute.ServiceAttachment{
 		Name:                 serviceAttachmentName,
 		Description:          fmt.Sprintf("Service Attachment for HyperShift cluster %s", gcpPSC.Name),
@@ -309,18 +316,36 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileServiceAttachment(ctx cont
 	}
 
 	log.Info("Creating Service Attachment", "name", serviceAttachmentName)
-	op, err := r.GcpClient.ServiceAttachments.Insert(r.ProjectID, r.Region, serviceAttachment).Context(ctx).Do()
+	insertCtx, insertCancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer insertCancel()
+
+	op, err := r.GcpClient.ServiceAttachments.Insert(r.ProjectID, r.Region, serviceAttachment).Context(insertCtx).Do()
 	if err != nil {
 		return r.handleGCPError(ctx, gcpPSC, "ServiceAttachmentCreationFailed", err)
 	}
 
-	// 4. Wait for operation completion
-	if op.Status == "RUNNING" {
-		log.Info("Service Attachment creation in progress", "operation", op.Name)
+	// 5. Check operation status - check for errors first, then check if still running
+	if op.Error != nil && len(op.Error.Errors) > 0 {
+		opErr := fmt.Errorf("operation failed: %s", op.Error.Errors[0].Message)
+		return r.handleGCPError(ctx, gcpPSC, "ServiceAttachmentCreationFailed", opErr)
+	}
+
+	if op.Status != "DONE" {
+		log.Info("Service Attachment creation in progress", "operation", op.Name, "status", op.Status)
 		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 	}
 
-	return ctrl.Result{}, nil
+	// 6. Operation completed - fetch the created Service Attachment and update status
+	fetchCtx, fetchCancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer fetchCancel()
+
+	createdServiceAttachment, err := r.GcpClient.ServiceAttachments.Get(r.ProjectID, r.Region, serviceAttachmentName).Context(fetchCtx).Do()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get newly created Service Attachment: %w", err)
+	}
+
+	log.Info("Service Attachment created successfully", "name", serviceAttachmentName)
+	return r.updateStatusFromServiceAttachment(ctx, gcpPSC, createdServiceAttachment)
 }
 
 // constructForwardingRuleURL builds the full GCP ForwardingRule URL
@@ -341,37 +366,10 @@ func (r *GCPPrivateServiceConnectReconciler) constructServiceAttachmentURI(servi
 		r.ProjectID, r.Region, serviceAttachmentName)
 }
 
-// constructServiceAttachmentName builds a unique Service Attachment name using PSC name + cluster ID + cluster name
-// Format: {pscName}-{clusterID}-{clusterName}-psc-sa (truncated to fit GCP 63-char limit)
-func (r *GCPPrivateServiceConnectReconciler) constructServiceAttachmentName(gcpPSC *hyperv1.GCPPrivateServiceConnect, hc *hyperv1.HostedCluster) string {
-	// Extract cluster ID (first 8 chars for brevity)
-	clusterID := hc.Spec.ClusterID
-	if len(clusterID) > 8 {
-		clusterID = clusterID[:8]
-	}
-
-	// Use cluster name (truncate if needed)
-	clusterName := hc.Name
-	if len(clusterName) > 20 {
-		clusterName = clusterName[:20]
-	}
-
-	// PSC name (truncate if needed)
-	pscName := gcpPSC.Name
-	if len(pscName) > 15 {
-		pscName = pscName[:15]
-	}
-
-	// Construct name: {pscName}-{clusterID}-{clusterName}-psc-sa
-	// Total format: up to 15 + 1 + 8 + 1 + 20 + 7 = 52 chars (well within 63 limit)
-	serviceAttachmentName := fmt.Sprintf("%s-%s-%s-psc-sa", pscName, clusterID, clusterName)
-
-	// Ensure we don't exceed GCP's 63-character limit
-	if len(serviceAttachmentName) > 63 {
-		serviceAttachmentName = serviceAttachmentName[:63]
-	}
-
-	return serviceAttachmentName
+// constructServiceAttachmentName builds a unique Service Attachment name using the cluster ID
+// Format: psc-{clusterID} (prefix ensures name starts with a letter per GCP naming requirements)
+func (r *GCPPrivateServiceConnectReconciler) constructServiceAttachmentName(hc *hyperv1.HostedCluster) string {
+	return fmt.Sprintf("psc-%s", hc.Spec.ClusterID)
 }
 
 // buildConsumerAcceptLists builds the consumer accept list for Service Attachment
@@ -437,7 +435,10 @@ func (r *GCPPrivateServiceConnectReconciler) delete(ctx context.Context, gcpPSC 
 	}
 
 	log.Info("Deleting Service Attachment", "name", serviceAttachmentName)
-	op, err := r.GcpClient.ServiceAttachments.Delete(r.ProjectID, r.Region, serviceAttachmentName).Context(ctx).Do()
+	deleteCtx, deleteCancel := context.WithTimeout(ctx, gcpAPITimeout)
+	defer deleteCancel()
+
+	op, err := r.GcpClient.ServiceAttachments.Delete(r.ProjectID, r.Region, serviceAttachmentName).Context(deleteCtx).Do()
 	if err != nil {
 		if isNotFoundError(err) {
 			// Service Attachment already deleted, consider it completed
@@ -447,9 +448,14 @@ func (r *GCPPrivateServiceConnectReconciler) delete(ctx context.Context, gcpPSC 
 		return false, fmt.Errorf("failed to delete Service Attachment: %w", err)
 	}
 
-	if op != nil && op.Status == "RUNNING" {
-		log.Info("Service Attachment deletion in progress", "operation", op.Name)
-		return false, nil // Not completed yet
+	if op != nil {
+		if op.Error != nil && len(op.Error.Errors) > 0 {
+			return false, fmt.Errorf("delete Service Attachment operation failed: %s", op.Error.Errors[0].Message)
+		}
+		if op.Status != "DONE" {
+			log.Info("Service Attachment deletion in progress", "operation", op.Name, "status", op.Status)
+			return false, nil // Not completed yet
+		}
 	}
 
 	log.Info("Service Attachment deletion completed", "name", serviceAttachmentName)
@@ -526,92 +532,26 @@ func (r *GCPPrivateServiceConnectReconciler) extractGCPProjectFromEnv() (string,
 func (r *GCPPrivateServiceConnectReconciler) extractGCPRegionFromEnv() (string, error) {
 	region := os.Getenv("GCP_REGION")
 	if region == "" {
-		// Default to us-central1 if not set
-		return "us-central1", nil
+		return "", fmt.Errorf("GCP_REGION environment variable is required")
 	}
 	return region, nil
 }
 
-// extractGCPProjectFromServiceAccount extracts GCP project ID from service account annotation
-func (r *GCPPrivateServiceConnectReconciler) extractGCPProjectFromServiceAccount(ctx context.Context, namespace, serviceAccountName string) (string, error) {
-	sa := &corev1.ServiceAccount{}
-	key := client.ObjectKey{
-		Namespace: namespace,
-		Name:      serviceAccountName,
-	}
-
-	if err := r.Get(ctx, key, sa); err != nil {
-		return "", fmt.Errorf("failed to get service account %s/%s: %w", namespace, serviceAccountName, err)
-	}
-
-	// Look for the GCP service account annotation
-	gcpSAAnnotation, ok := sa.Annotations["iam.gke.io/gcp-service-account"]
-	if !ok {
-		return "", fmt.Errorf("service account %s/%s missing iam.gke.io/gcp-service-account annotation", namespace, serviceAccountName)
-	}
-
-	// Parse the GCP service account email to extract project ID
-	// Format: service-account-name@project-id.iam.gserviceaccount.com
-	parts := strings.Split(gcpSAAnnotation, "@")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid GCP service account format: %s", gcpSAAnnotation)
-	}
-
-	domainParts := strings.Split(parts[1], ".")
-	if len(domainParts) < 3 || domainParts[1] != "iam" || domainParts[2] != "gserviceaccount" {
-		return "", fmt.Errorf("invalid GCP service account domain format: %s", gcpSAAnnotation)
-	}
-
-	projectID := domainParts[0]
-	if projectID == "" {
-		return "", fmt.Errorf("could not extract project ID from GCP service account: %s", gcpSAAnnotation)
-	}
-
-	return projectID, nil
-}
-
-// hostedControlPlane retrieves the HostedControlPlane for a given namespace
-func (r *GCPPrivateServiceConnectReconciler) hostedControlPlane(ctx context.Context, namespace string) (*hyperv1.HostedControlPlane, error) {
-	hcpList := &hyperv1.HostedControlPlaneList{}
-	if err := r.List(ctx, hcpList, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("failed to list hosted control planes in namespace %s: %w", namespace, err)
-	}
-
-	if len(hcpList.Items) == 0 {
-		return nil, fmt.Errorf("no hosted control plane found in namespace %s", namespace)
-	}
-
-	if len(hcpList.Items) > 1 {
-		return nil, fmt.Errorf("multiple hosted control planes found in namespace %s", namespace)
-	}
-
-	return &hcpList.Items[0], nil
-}
-
-// hostedClusterNamespaceAndName gets the HostedCluster namespace and name from HostedControlPlane annotations
-func hostedClusterNamespaceAndName(hcp *hyperv1.HostedControlPlane) (string, string) {
-	hcNamespaceName, exists := hcp.Annotations[supportutil.HostedClusterAnnotation]
+// hostedClusterFromAnnotation retrieves the HostedCluster using the annotation on GCPPrivateServiceConnect
+func (r *GCPPrivateServiceConnectReconciler) hostedClusterFromAnnotation(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) (*hyperv1.HostedCluster, error) {
+	hcNamespaceName, exists := gcpPSC.Annotations[supportutil.HostedClusterAnnotation]
 	if !exists {
-		return "", ""
+		return nil, fmt.Errorf("GCPPrivateServiceConnect %s/%s missing %s annotation", gcpPSC.Namespace, gcpPSC.Name, supportutil.HostedClusterAnnotation)
 	}
+
 	parts := strings.SplitN(hcNamespaceName, "/", 2)
 	if len(parts) != 2 {
-		return "", ""
+		return nil, fmt.Errorf("invalid %s annotation format: %s", supportutil.HostedClusterAnnotation, hcNamespaceName)
 	}
-	return parts[0], parts[1]
-}
 
-// hostedCluster retrieves the HostedCluster that owns the given HostedControlPlane
-func (r *GCPPrivateServiceConnectReconciler) hostedCluster(ctx context.Context, hcp *hyperv1.HostedControlPlane) (*hyperv1.HostedCluster, error) {
-	namespace, name := hostedClusterNamespaceAndName(hcp)
-	if namespace == "" || name == "" {
-		return nil, fmt.Errorf("cannot determine hosted cluster name/namespace from HostedControlPlane %s", client.ObjectKeyFromObject(hcp).String())
-	}
 	hc := &hyperv1.HostedCluster{}
-	hc.Namespace = namespace
-	hc.Name = name
-	if err := r.Get(ctx, client.ObjectKeyFromObject(hc), hc); err != nil {
-		return nil, fmt.Errorf("failed to get hosted cluster %s: %w", client.ObjectKeyFromObject(hc).String(), err)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: parts[0], Name: parts[1]}, hc); err != nil {
+		return nil, fmt.Errorf("failed to get hosted cluster %s/%s: %w", parts[0], parts[1], err)
 	}
 	return hc, nil
 }
