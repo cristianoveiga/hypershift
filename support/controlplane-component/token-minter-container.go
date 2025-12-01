@@ -57,7 +57,9 @@ func (opts TokenMinterContainerOptions) injectTokenMinterContainer(cpContext Con
 
 	// We mint cloud tokens for AWS, self-managed Azure, and GCP.
 	if (opts.TokenType == CloudToken || opts.TokenType == CloudAndAPIServerToken) &&
-		(cpContext.HCP.Spec.Platform.Type == hyperv1.AWSPlatform || azureutil.IsSelfManagedAzure(cpContext.HCP.Spec.Platform.Type) || cpContext.HCP.Spec.Platform.Type == hyperv1.GCPPlatform) {
+		(cpContext.HCP.Spec.Platform.Type == hyperv1.AWSPlatform ||
+			azureutil.IsSelfManagedAzure(cpContext.HCP.Spec.Platform.Type) ||
+			cpContext.HCP.Spec.Platform.Type == hyperv1.GCPPlatform) {
 		tokenVolume := opts.buildVolume(string(CloudToken))
 		podSpec.Volumes = append(podSpec.Volumes, tokenVolume)
 
