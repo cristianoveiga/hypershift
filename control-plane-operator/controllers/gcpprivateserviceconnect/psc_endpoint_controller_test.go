@@ -18,44 +18,22 @@ func TestConstructEndpointName(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "When constructing endpoint name it should include namespace and resource name",
+			name: "When constructing endpoint name it should use service attachment name with endpoint suffix",
 			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster",
-					Namespace: "clusters-test-cluster-1",
+				Status: hyperv1.GCPPrivateServiceConnectStatus{
+					ServiceAttachmentName: "private-router-4bcf17df-cveiga-test-3-psc-sa",
 				},
 			},
-			expected: "clusters-test-cluster-1-test-cluster-psc-endpoint",
+			expected: "private-router-4bcf17df-cveiga-test-3-psc-sa-endpoint",
 		},
 		{
-			name: "When namespace has underscores it should replace them with hyphens",
+			name: "When service attachment name is short it should append endpoint suffix",
 			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "private-router",
-					Namespace: "clusters_customer_hosted_cluster_1",
+				Status: hyperv1.GCPPrivateServiceConnectStatus{
+					ServiceAttachmentName: "test-sa",
 				},
 			},
-			expected: "clusters-customer-hosted-cluster-1-private-router-psc-endpoint",
-		},
-		{
-			name: "When resource name has underscores it should replace them with hyphens",
-			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test_cluster_router",
-					Namespace: "clusters-test-cluster",
-				},
-			},
-			expected: "clusters-test-cluster-test-cluster-router-psc-endpoint",
-		},
-		{
-			name: "When both namespace and name have underscores it should replace all",
-			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "private_service_router",
-					Namespace: "clusters_customer_hosted_1",
-				},
-			},
-			expected: "clusters-customer-hosted-1-private-service-router-psc-endpoint",
+			expected: "test-sa-endpoint",
 		},
 	}
 
@@ -76,44 +54,22 @@ func TestConstructIPAddressName(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "When constructing IP name it should include namespace and resource name",
+			name: "When constructing IP name it should use service attachment name with ip suffix",
 			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster",
-					Namespace: "clusters-test-cluster-1",
+				Status: hyperv1.GCPPrivateServiceConnectStatus{
+					ServiceAttachmentName: "private-router-4bcf17df-cveiga-test-3-psc-sa",
 				},
 			},
-			expected: "clusters-test-cluster-1-test-cluster-psc-endpoint-ip",
+			expected: "private-router-4bcf17df-cveiga-test-3-psc-sa-ip",
 		},
 		{
-			name: "When namespace has underscores it should replace them with hyphens",
+			name: "When service attachment name is short it should append ip suffix",
 			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "private-router",
-					Namespace: "clusters_customer_hosted_cluster_1",
+				Status: hyperv1.GCPPrivateServiceConnectStatus{
+					ServiceAttachmentName: "test-sa",
 				},
 			},
-			expected: "clusters-customer-hosted-cluster-1-private-router-psc-endpoint-ip",
-		},
-		{
-			name: "When resource name has underscores it should replace them with hyphens",
-			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test_cluster_router",
-					Namespace: "clusters-test-cluster",
-				},
-			},
-			expected: "clusters-test-cluster-test-cluster-router-psc-endpoint-ip",
-		},
-		{
-			name: "When both namespace and name have underscores it should replace all",
-			gcpPSC: &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "private_service_router",
-					Namespace: "clusters_customer_hosted_1",
-				},
-			},
-			expected: "clusters-customer-hosted-1-private-service-router-psc-endpoint-ip",
+			expected: "test-sa-ip",
 		},
 	}
 
@@ -258,34 +214,6 @@ func TestIsServiceAttachmentReady(t *testing.T) {
 }
 
 
-func TestConstructIPAddressNameFromIP(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	tests := []struct {
-		name     string
-		ip       string
-		expected string
-	}{
-		{
-			name:     "When given an IP address it should construct a name",
-			ip:       "10.0.0.1",
-			expected: "psc-endpoint-ip-10.0.0.1",
-		},
-		{
-			name:     "When given a different IP it should construct appropriate name",
-			ip:       "192.168.1.100",
-			expected: "psc-endpoint-ip-192.168.1.100",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := r.constructIPAddressNameFromIP(tt.ip)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestIsNotFoundError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -314,22 +242,20 @@ func TestIsNotFoundError(t *testing.T) {
 	}
 }
 
-// Test unique naming across different clusters - fixes GCP-198 409 conflict issue
+// Test unique naming across different clusters using ServiceAttachmentName
 func TestIPAddressNameUniqueness(t *testing.T) {
 	r := &GCPPrivateServiceConnectReconciler{}
 
-	// Simulate the original conflict scenario: same PSC resource name in different clusters
+	// Service attachment names are unique per cluster, ensuring GCP resource uniqueness
 	cluster1PSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",
-			Namespace: "clusters-customer-hosted-cluster-1",
+		Status: hyperv1.GCPPrivateServiceConnectStatus{
+			ServiceAttachmentName: "private-router-4bcf17df-cluster-1-psc-sa",
 		},
 	}
 
 	cluster2PSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",                     // Same name
-			Namespace: "clusters-customer-hosted-cluster-2", // Different cluster
+		Status: hyperv1.GCPPrivateServiceConnectStatus{
+			ServiceAttachmentName: "private-router-5def28eg-cluster-2-psc-sa",
 		},
 	}
 
@@ -339,136 +265,46 @@ func TestIPAddressNameUniqueness(t *testing.T) {
 	// Names should be different to prevent GCP resource conflicts
 	assert.NotEqual(t, name1, name2, "IP address names should be unique across different clusters")
 
-	expectedName1 := "clusters-customer-hosted-cluster-1-private-router-psc-endpoint-ip"
-	expectedName2 := "clusters-customer-hosted-cluster-2-private-router-psc-endpoint-ip"
-
-	assert.Equal(t, expectedName1, name1)
-	assert.Equal(t, expectedName2, name2)
+	assert.Equal(t, "private-router-4bcf17df-cluster-1-psc-sa-ip", name1)
+	assert.Equal(t, "private-router-5def28eg-cluster-2-psc-sa-ip", name2)
 }
 
-// Test that naming functions are consistent - fixes verifyIPExists bug
+// Test that naming functions are consistent for both endpoint and IP
 func TestNamingFunctionConsistency(t *testing.T) {
 	r := &GCPPrivateServiceConnectReconciler{}
 
 	gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",
-			Namespace: "clusters-customer-hosted-cluster-1",
+		Status: hyperv1.GCPPrivateServiceConnectStatus{
+			ServiceAttachmentName: "private-router-4bcf17df-cveiga-test-3-psc-sa",
 		},
 	}
 
-	// The name used for IP creation should be the same as used for verification
+	// Both functions should use the same service attachment name as base
 	ipName := r.constructIPAddressName(gcpPSC)
+	endpointName := r.constructEndpointName(gcpPSC)
 
-	// This was the bug: verifyIPExists used to construct the name differently
-	// Now both should use the same naming logic for consistency
-	expectedName := "clusters-customer-hosted-cluster-1-private-router-psc-endpoint-ip"
+	assert.Equal(t, "private-router-4bcf17df-cveiga-test-3-psc-sa-ip", ipName)
+	assert.Equal(t, "private-router-4bcf17df-cveiga-test-3-psc-sa-endpoint", endpointName)
 
-	assert.Equal(t, expectedName, ipName,
-		"constructIPAddressName should generate the correct name for GCP API calls")
-
-	// Verify the name follows GCP resource naming conventions
-	assert.NotContains(t, ipName, "_", "Resource name should not contain underscores")
-	assert.Contains(t, ipName, "clusters-customer-hosted-cluster-1", "Name should include namespace")
-	assert.Contains(t, ipName, "private-router", "Name should include resource name")
-	assert.Contains(t, ipName, "psc-endpoint-ip", "Name should include resource type suffix")
+	// Both should be under 63 characters (GCP limit)
+	assert.LessOrEqual(t, len(ipName), 63, "IP name should be <= 63 characters")
+	assert.LessOrEqual(t, len(endpointName), 63, "Endpoint name should be <= 63 characters")
 }
 
-// Test the exact scenario that caused the original 409 conflict
-func TestOriginalConflictScenario(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	// This represents the exact resource that was experiencing the 409 conflict
-	conflictedPSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",
-			Namespace: "clusters-customer-hosted-cluster-1",
-		},
-	}
-
-	ipName := r.constructIPAddressName(conflictedPSC)
-
-	// This should match the actual GCP resource name that was being created
-	expectedConflictedName := "clusters-customer-hosted-cluster-1-private-router-psc-endpoint-ip"
-	assert.Equal(t, expectedConflictedName, ipName)
-
-	// Verify this name is what the controller will check for in GCP
-	// Before the fix, the controller would try to create this name but
-	// verifyIPExists would look for "psc-endpoint-ip-10.20.1.3" instead
-	assert.Equal(t, expectedConflictedName, ipName,
-		"Name should match what will be created/verified in GCP")
-}
-
-// Test edge cases for namespace and name sanitization
-func TestNameSanitization(t *testing.T) {
-	r := &GCPPrivateServiceConnectReconciler{}
-
-	tests := []struct {
-		name      string
-		namespace string
-		pscName   string
-		expected  string
-	}{
-		{
-			name:      "When namespace and name are already clean it should not change them",
-			namespace: "clusters-customer-hosted-1",
-			pscName:   "private-router",
-			expected:  "clusters-customer-hosted-1-private-router-psc-endpoint-ip",
-		},
-		{
-			name:      "When namespace has multiple underscores it should replace all",
-			namespace: "clusters_customer_hosted_cluster_1",
-			pscName:   "private-router",
-			expected:  "clusters-customer-hosted-cluster-1-private-router-psc-endpoint-ip",
-		},
-		{
-			name:      "When PSC name has multiple underscores it should replace all",
-			namespace: "clusters-customer-hosted-1",
-			pscName:   "private_service_connect_router",
-			expected:  "clusters-customer-hosted-1-private-service-connect-router-psc-endpoint-ip",
-		},
-		{
-			name:      "When both have mixed characters it should handle correctly",
-			namespace: "test_namespace_with_underscores",
-			pscName:   "test_resource_name",
-			expected:  "test-namespace-with-underscores-test-resource-name-psc-endpoint-ip",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gcpPSC := &hyperv1.GCPPrivateServiceConnect{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.pscName,
-					Namespace: tt.namespace,
-				},
-			}
-
-			result := r.constructIPAddressName(gcpPSC)
-			assert.Equal(t, tt.expected, result)
-
-			// Ensure result follows GCP naming conventions
-			assert.NotContains(t, result, "_", "Result should not contain underscores")
-		})
-	}
-}
-
-// Test endpoint naming uniqueness across different clusters - prevents endpoint name conflicts
+// Test endpoint naming uniqueness across different clusters using ServiceAttachmentName
 func TestEndpointNameUniqueness(t *testing.T) {
 	r := &GCPPrivateServiceConnectReconciler{}
 
-	// Simulate the same PSC resource name in different clusters
+	// Service attachment names are unique per cluster
 	cluster1PSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",
-			Namespace: "clusters-customer-hosted-cluster-1",
+		Status: hyperv1.GCPPrivateServiceConnectStatus{
+			ServiceAttachmentName: "private-router-4bcf17df-cluster-1-psc-sa",
 		},
 	}
 
 	cluster2PSC := &hyperv1.GCPPrivateServiceConnect{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "private-router",                     // Same name
-			Namespace: "clusters-customer-hosted-cluster-2", // Different cluster
+		Status: hyperv1.GCPPrivateServiceConnectStatus{
+			ServiceAttachmentName: "private-router-5def28eg-cluster-2-psc-sa",
 		},
 	}
 
@@ -478,11 +314,8 @@ func TestEndpointNameUniqueness(t *testing.T) {
 	// Names should be different to prevent GCP PSC endpoint conflicts
 	assert.NotEqual(t, endpointName1, endpointName2, "PSC endpoint names should be unique across different clusters")
 
-	expectedEndpointName1 := "clusters-customer-hosted-cluster-1-private-router-psc-endpoint"
-	expectedEndpointName2 := "clusters-customer-hosted-cluster-2-private-router-psc-endpoint"
-
-	assert.Equal(t, expectedEndpointName1, endpointName1)
-	assert.Equal(t, expectedEndpointName2, endpointName2)
+	assert.Equal(t, "private-router-4bcf17df-cluster-1-psc-sa-endpoint", endpointName1)
+	assert.Equal(t, "private-router-5def28eg-cluster-2-psc-sa-endpoint", endpointName2)
 }
 
 

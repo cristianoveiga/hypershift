@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
@@ -588,25 +587,13 @@ func (r *GCPPrivateServiceConnectReconciler) cleanupDNS(ctx context.Context, gcp
 // Helper functions for resource naming and URL construction
 
 func (r *GCPPrivateServiceConnectReconciler) constructEndpointName(gcpPSC *hyperv1.GCPPrivateServiceConnect) string {
-	// Include namespace to ensure uniqueness across different clusters
-	// Replace any characters that aren't valid for GCP resource names
-	safeName := strings.ReplaceAll(gcpPSC.Name, "_", "-")
-	safeNamespace := strings.ReplaceAll(gcpPSC.Namespace, "_", "-")
-	return fmt.Sprintf("%s-%s-psc-endpoint", safeNamespace, safeName)
+	// Use service attachment name as base - it's unique and within GCP naming limits
+	return fmt.Sprintf("%s-endpoint", gcpPSC.Status.ServiceAttachmentName)
 }
 
 func (r *GCPPrivateServiceConnectReconciler) constructIPAddressName(gcpPSC *hyperv1.GCPPrivateServiceConnect) string {
-	// Include namespace to ensure uniqueness across different clusters
-	// Replace any characters that aren't valid for GCP resource names
-	safeName := strings.ReplaceAll(gcpPSC.Name, "_", "-")
-	safeNamespace := strings.ReplaceAll(gcpPSC.Namespace, "_", "-")
-	return fmt.Sprintf("%s-%s-psc-endpoint-ip", safeNamespace, safeName)
-}
-
-func (r *GCPPrivateServiceConnectReconciler) constructIPAddressNameFromIP(ip string) string {
-	// This is a placeholder - in reality we'd need to track the name more precisely
-	// For now, we'll use a naming convention that can be reverse-engineered
-	return fmt.Sprintf("psc-endpoint-ip-%s", ip)
+	// Use service attachment name as base - it's unique and within GCP naming limits
+	return fmt.Sprintf("%s-ip", gcpPSC.Status.ServiceAttachmentName)
 }
 
 func (r *GCPPrivateServiceConnectReconciler) constructNetworkURL(networkName, customerProject string) string {
