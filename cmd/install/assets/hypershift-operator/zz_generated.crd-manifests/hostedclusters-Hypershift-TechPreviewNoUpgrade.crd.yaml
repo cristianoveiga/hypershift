@@ -5678,12 +5678,6 @@ spec:
                     description: gcp specifies configuration for clusters running
                       on Google Cloud Platform.
                     properties:
-                      createDnsZones:
-                        description: |-
-                          createDnsZones enables automatic DNS zone creation in the customer project.
-                          When true, the control-plane-operator creates Cloud DNS zones for cluster ingress
-                          and internal communication (hypershift.local).
-                        type: boolean
                       endpointAccess:
                         default: Private
                         description: |-

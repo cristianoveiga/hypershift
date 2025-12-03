@@ -170,13 +170,6 @@ spec:
                   description: DNSZoneStatus represents a single DNS zone and its
                     records
                   properties:
-                    managedByOperator:
-                      default: false
-                      description: |-
-                        managedByOperator indicates if this zone is managed by the control plane operator.
-                        When true, the zone will be deleted during cluster cleanup.
-                        When false, the zone is externally managed and will not be deleted.
-                      type: boolean
                     name:
                       description: name is the DNS zone name
                       maxLength: 253

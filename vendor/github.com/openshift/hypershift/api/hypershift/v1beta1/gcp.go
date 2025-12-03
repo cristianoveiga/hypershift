@@ -125,12 +125,6 @@ type GCPPlatformSpec struct {
 	// +optional
 	EndpointAccess GCPEndpointAccessType `json:"endpointAccess,omitempty"`
 
-	// createDnsZones enables automatic DNS zone creation in the customer project.
-	// When true, the control-plane-operator creates Cloud DNS zones for cluster ingress
-	// and internal communication (hypershift.local).
-	// +optional
-	CreateDnsZones *bool `json:"createDnsZones,omitempty"`
-
 	// resourceLabels are applied to all GCP resources created for the cluster.
 	// Labels are key-value pairs used for organizing and managing GCP resources.
 	// Changes to this field will be propagated in-place to GCP resources where supported.

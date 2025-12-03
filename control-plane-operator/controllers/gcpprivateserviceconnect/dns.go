@@ -496,7 +496,6 @@ func ReconcileDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane, pscEndpo
 
 	// Generate DNS names
 	hypershiftDNSName := ensureDNSDot(fmt.Sprintf("%s.hypershift.local", clusterName))
-	createZones := gcpSpec.CreateDnsZones != nil && *gcpSpec.CreateDnsZones
 
 	// Create DNS client (reused for all operations in this reconciliation)
 	svc, err := newDNSClient(ctx)
@@ -506,7 +505,7 @@ func ReconcileDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane, pscEndpo
 
 	// Ensure zones exist (create or retrieve)
 	hypershiftLocalZone, publicIngressZone, privateIngressZone, publicNSRecords, err := ensureZones(
-		ctx, svc, createZones, projectID,
+		ctx, svc, true, projectID,
 		names.hypershiftLocalZoneName, names.publicIngressZoneName, names.privateIngressZoneName,
 		hypershiftDNSName, names.ingressDNSName, vpcNetworkURL,
 	)
@@ -568,12 +567,6 @@ func DeleteDNS(ctx context.Context, hcp *hyperv1.HostedControlPlane) error {
 	}
 
 	gcpSpec := hcp.Spec.Platform.GCP
-
-	// Only delete zones if we created them (createDnsZones was true)
-	// If createDnsZones was false, zones were pre-existing and externally managed
-	if gcpSpec.CreateDnsZones == nil || !*gcpSpec.CreateDnsZones {
-		return nil // Zones not managed by us, skip cleanup
-	}
 
 	if hcp.Spec.DNS.BaseDomain == "" || gcpSpec.Project == "" {
 		return nil // Can't determine what to delete

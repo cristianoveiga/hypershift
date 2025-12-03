@@ -4,9 +4,11 @@ import (
 	"testing"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
-	"github.com/stretchr/testify/assert"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConstructEndpointName(t *testing.T) {
@@ -213,7 +215,6 @@ func TestIsServiceAttachmentReady(t *testing.T) {
 	}
 }
 
-
 func TestIsNotFoundError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -318,8 +319,6 @@ func TestEndpointNameUniqueness(t *testing.T) {
 	assert.Equal(t, "private-router-5def28eg-cluster-2-psc-sa-endpoint", endpointName2)
 }
 
-
-
 func TestHCPExternalNamesGCP(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -336,8 +335,8 @@ func TestHCPExternalNamesGCP(t *testing.T) {
 			expected: map[string]string{},
 		},
 		{
-				name: "When API server has Route hostname it should return api entry",
-		hcp: &hyperv1.HostedControlPlane{
+			name: "When API server has Route hostname it should return api entry",
+			hcp: &hyperv1.HostedControlPlane{
 				Spec: hyperv1.HostedControlPlaneSpec{
 					Services: []hyperv1.ServicePublishingStrategyMapping{
 						{

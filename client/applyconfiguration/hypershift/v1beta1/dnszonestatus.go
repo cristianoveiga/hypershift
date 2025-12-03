@@ -20,9 +20,8 @@ package v1beta1
 // DNSZoneStatusApplyConfiguration represents a declarative configuration of the DNSZoneStatus type for use
 // with apply.
 type DNSZoneStatusApplyConfiguration struct {
-	Name              *string  `json:"name,omitempty"`
-	Records           []string `json:"records,omitempty"`
-	ManagedByOperator *bool    `json:"managedByOperator,omitempty"`
+	Name    *string  `json:"name,omitempty"`
+	Records []string `json:"records,omitempty"`
 }
 
 // DNSZoneStatusApplyConfiguration constructs a declarative configuration of the DNSZoneStatus type for use with
@@ -46,13 +45,5 @@ func (b *DNSZoneStatusApplyConfiguration) WithRecords(values ...string) *DNSZone
 	for i := range values {
 		b.Records = append(b.Records, values[i])
 	}
-	return b
-}
-
-// WithManagedByOperator sets the ManagedByOperator field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ManagedByOperator field is set to the value of the last call.
-func (b *DNSZoneStatusApplyConfiguration) WithManagedByOperator(value bool) *DNSZoneStatusApplyConfiguration {
-	b.ManagedByOperator = &value
 	return b
 }

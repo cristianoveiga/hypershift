@@ -5578,20 +5578,6 @@ string
 <p>records lists the DNS records created in this zone</p>
 </td>
 </tr>
-<tr>
-<td>
-<code>managedByOperator</code></br>
-<em>
-bool
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>managedByOperator indicates if this zone is managed by the control plane operator.
-When true, the zone will be deleted during cluster cleanup.
-When false, the zone is externally managed and will not be deleted.</p>
-</td>
-</tr>
 </tbody>
 </table>
 ###DataPlaneManagedIdentities { #hypershift.openshift.io/v1beta1.DataPlaneManagedIdentities }
@@ -6109,20 +6095,6 @@ GCPEndpointAccessType
 <em>(Optional)</em>
 <p>endpointAccess controls API endpoint accessibility for the HostedControlPlane on GCP.
 Allowed values: &ldquo;Private&rdquo;, &ldquo;PublicAndPrivate&rdquo;. Defaults to &ldquo;Private&rdquo;.</p>
-</td>
-</tr>
-<tr>
-<td>
-<code>createDnsZones</code></br>
-<em>
-bool
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>createDnsZones enables automatic DNS zone creation in the customer project.
-When true, the control-plane-operator creates Cloud DNS zones for cluster ingress
-and internal communication (hypershift.local).</p>
 </td>
 </tr>
 <tr>
