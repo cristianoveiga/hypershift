@@ -4957,11 +4957,6 @@ spec:
                                 x-kubernetes-validations:
                                 - message: ControlPlane is immutable
                                   rule: self == oldSelf
-                              controlPlaneEmail:
-                                maxLength: 100
-                                minLength: 1
-                                pattern: ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$
-                                type: string
                               nodePool:
                                 description: |-
                                   nodePool is the Google Service Account email for CAPG controllers
@@ -4982,13 +4977,9 @@ spec:
                                 x-kubernetes-validations:
                                 - message: NodePool is immutable
                                   rule: self == oldSelf
-                              nodePoolEmail:
-                                type: string
                             required:
                             - controlPlane
-                            - controlPlaneEmail
                             - nodePool
-                            - nodePoolEmail
                             type: object
                         required:
                         - poolID

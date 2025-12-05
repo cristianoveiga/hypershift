@@ -6393,26 +6393,6 @@ Typically obtained from the output of <code>hypershift infra create gcp</code> w
 the required service accounts with appropriate IAM roles and WIF bindings.</p>
 </td>
 </tr>
-<tr>
-<td>
-<code>nodePoolEmail</code></br>
-<em>
-string
-</em>
-</td>
-<td>
-</td>
-</tr>
-<tr>
-<td>
-<code>controlPlaneEmail</code></br>
-<em>
-string
-</em>
-</td>
-<td>
-</td>
-</tr>
 </tbody>
 </table>
 ###GCPWorkloadIdentityConfig { #hypershift.openshift.io/v1beta1.GCPWorkloadIdentityConfig }
