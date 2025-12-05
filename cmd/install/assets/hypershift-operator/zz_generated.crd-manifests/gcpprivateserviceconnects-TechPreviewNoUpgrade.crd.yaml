@@ -176,6 +176,7 @@ spec:
                     name:
                       description: name is the DNS zone name
                       maxLength: 253
+                      minLength: 1
                       type: string
                     records:
                       description: records lists the DNS records created in this zone
@@ -184,11 +185,13 @@ spec:
                         type: string
                       maxItems: 10
                       type: array
+                      x-kubernetes-list-type: atomic
                   required:
                   - name
                   type: object
                 maxItems: 5
                 type: array
+                x-kubernetes-list-type: atomic
               endpointIP:
                 description: |-
                   endpointIP is the reserved IP address for the PSC endpoint

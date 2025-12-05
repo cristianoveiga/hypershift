@@ -40,11 +40,13 @@ const (
 type DNSZoneStatus struct {
 	// name is the DNS zone name
 	// +required
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 
 	// records lists the DNS records created in this zone
 	// +optional
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=10
 	// +kubebuilder:validation:items:MaxLength=253
 	Records []string `json:"records,omitempty"`
@@ -121,6 +123,7 @@ type GCPPrivateServiceConnectStatus struct {
 
 	// dnsZones contains DNS zone information created for this cluster
 	// +optional
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=5
 	DNSZones []DNSZoneStatus `json:"dnsZones,omitempty"`
 }
