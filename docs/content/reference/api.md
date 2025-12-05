@@ -6440,6 +6440,16 @@ the required service accounts with appropriate IAM roles and WIF bindings.</p>
 </tr>
 <tr>
 <td>
+<code>nodePoolEmail</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td>
 <code>controlPlaneEmail</code></br>
 <em>
 string

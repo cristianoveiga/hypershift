@@ -263,5 +263,12 @@ type GCPServiceAccountsEmails struct {
 	// +kubebuilder:validation:MinLength=38
 	// +kubebuilder:validation:MaxLength=100
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="ControlPlane is immutable"
-	ControlPlane string `json:"controlPlane,omitempty"`
+	ControlPlane  string `json:"controlPlane,omitempty"`
+	NodePoolEmail string `json:"nodePoolEmail"`
+
+	// +required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=100
+	ControlPlaneEmail string `json:"controlPlaneEmail"`
 }
