@@ -38,7 +38,24 @@ const (
 	pscEndpointFinalizer               = "hypershift.openshift.io/gcp-psc-customer"
 	pscEndpointDeletionRequeueDuration = 5 * time.Second // Match AWS pattern
 	externalPrivateServiceLabelGCP     = "hypershift.openshift.io/gcp-psc-external-private-svc"
+	// wifTokenPath is the path where the token minter writes the projected service account token for GCP WIF.
+	wifTokenPath = "/var/run/secrets/openshift/serviceaccount/token"
 )
+
+// isWIFTokenAccessible checks if the WIF service account token file exists and is accessible.
+// The token is written by the token minter after the credential secret is created.
+// This is used to determine if GCP WIF credentials are ready before adding a finalizer.
+//
+// NOTE: We cannot use the ValidGCPWorkloadIdentity condition from HostedCluster or HCP because:
+//  1. The HCP may already be deleted during the deletion flow, making it unavailable to check
+//  2. The ValidGCPCredentials condition indicates the credential secret exists, but the token
+//     minter runs asynchronously and may not have written the token file yet
+//  3. Checking the token file directly is the most accurate way to verify WIF is ready
+//     within the control-plane-operator pod
+func isWIFTokenAccessible() bool {
+	_, err := os.Stat(wifTokenPath)
+	return err == nil
+}
 
 // gcpClientBuilder manages GCP client creation with HCP configuration
 type gcpClientBuilder struct {
@@ -147,8 +164,14 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Add finalizer if not present
+	// 3. Add finalizer only if WIF token is accessible
+	// The token is created by the token minter after credential secrets are ready.
+	// If we add the finalizer before the token exists, cleanup on deletion will fail.
 	if !controllerutil.ContainsFinalizer(gcpPSC, pscEndpointFinalizer) {
+		if !isWIFTokenAccessible() {
+			log.Info("WIF token not yet accessible, waiting before adding finalizer")
+			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+		}
 		controllerutil.AddFinalizer(gcpPSC, pscEndpointFinalizer)
 		return ctrl.Result{}, r.Update(ctx, gcpPSC)
 	}
