@@ -366,7 +366,12 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 	}
 
 	// If reconciliation is paused we return before modifying any state
-	capi, err := newCAPI(token, infraID)
+	// For GCP, use a GCP-compliant cluster name (tags must start with lowercase letter)
+	capiClusterName := infraID
+	if nodePool.Spec.Platform.Type == hyperv1.GCPPlatform {
+		capiClusterName = gcpCompliantClusterName(infraID)
+	}
+	capi, err := newCAPI(token, capiClusterName)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -481,6 +486,10 @@ func isArchAndPlatformSupported(nodePool *hyperv1.NodePool) bool {
 			supported = true
 		}
 	case hyperv1.NonePlatform:
+		if nodePool.Spec.Arch == hyperv1.ArchitectureAMD64 || nodePool.Spec.Arch == hyperv1.ArchitectureARM64 {
+			supported = true
+		}
+	case hyperv1.GCPPlatform:
 		if nodePool.Spec.Arch == hyperv1.ArchitectureAMD64 || nodePool.Spec.Arch == hyperv1.ArchitectureARM64 {
 			supported = true
 		}
@@ -728,6 +737,19 @@ func defaultNodePoolAMI(region string, specifiedArch string, releaseImage *relea
 		return "", fmt.Errorf("release image metadata has no image for region %q", region)
 	}
 	return regionData.Image, nil
+}
+
+// defaultNodePoolGCPImage returns the default GCP image for a given architecture from release metadata.
+func defaultNodePoolGCPImage(specifiedArch string, releaseImage *releaseinfo.ReleaseImage) (string, error) {
+	arch, foundArch := releaseImage.StreamMetadata.Architectures[hyperv1.ArchAliases[specifiedArch]]
+	if !foundArch {
+		return "", fmt.Errorf("couldn't find OS metadata for architecture %q", specifiedArch)
+	}
+
+	if len(arch.Images.GCP.Image) == 0 {
+		return "", fmt.Errorf("release image metadata has no GCP image for architecture %q", specifiedArch)
+	}
+	return arch.Images.GCP.Image, nil
 }
 
 // MachineDeploymentComplete considers a MachineDeployment to be complete once all of its desired replicas
@@ -1197,4 +1219,21 @@ func validateHCPayloadSupportsNodePoolCPUArch(hc *hyperv1.HostedCluster, np *hyp
 	}
 
 	return fmt.Errorf("NodePool CPU arch, %s, is not supported by the HostedCluster payload type, %s; either change the NodePool CPU arch or use a multi-arch release image", np.Spec.Arch, hc.Status.PayloadArch)
+}
+
+// gcpCompliantClusterName converts an infraID to a GCP-compliant cluster name.
+// GCP network tags (which CAPG generates from cluster name) must start with a lowercase letter.
+// This function prefixes the infraID with 'hcp-' if it starts with a non-letter character.
+func gcpCompliantClusterName(infraID string) string {
+	if len(infraID) == 0 {
+		return infraID
+	}
+
+	// Check if first character is a lowercase letter
+	if infraID[0] >= 'a' && infraID[0] <= 'z' {
+		return infraID
+	}
+
+	// Prefix with 'hcp-' (for hypershift control plane) to make it GCP-compliant
+	return "hcp-" + infraID
 }

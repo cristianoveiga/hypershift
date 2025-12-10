@@ -397,7 +397,11 @@ func (r *NodePoolReconciler) updatingConfigCondition(ctx context.Context, nodePo
 		status := corev1.ConditionTrue
 
 		if nodePool.Spec.Management.UpgradeType == hyperv1.UpgradeTypeInPlace {
-			capi, err := newCAPI(token, hcluster.Spec.InfraID)
+			capiClusterName := hcluster.Spec.InfraID
+			if nodePool.Spec.Platform.Type == hyperv1.GCPPlatform {
+				capiClusterName = gcpCompliantClusterName(hcluster.Spec.InfraID)
+			}
+			capi, err := newCAPI(token, capiClusterName)
 			if err != nil {
 				return &ctrl.Result{}, fmt.Errorf("error getting capi client: %w", err)
 			}
@@ -464,7 +468,11 @@ func (r *NodePoolReconciler) updatingVersionCondition(ctx context.Context, nodeP
 				return &ctrl.Result{}, fmt.Errorf("error getting token: %w", err)
 			}
 
-			capi, err := newCAPI(token, hcluster.Spec.InfraID)
+			capiClusterName := hcluster.Spec.InfraID
+			if nodePool.Spec.Platform.Type == hyperv1.GCPPlatform {
+				capiClusterName = gcpCompliantClusterName(hcluster.Spec.InfraID)
+			}
+			capi, err := newCAPI(token, capiClusterName)
 			if err != nil {
 				return &ctrl.Result{}, fmt.Errorf("error getting capi client: %w", err)
 			}
