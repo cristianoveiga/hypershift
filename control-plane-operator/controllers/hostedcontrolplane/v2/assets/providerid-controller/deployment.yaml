@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: providerid-controller
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: providerid-controller
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: providerid-controller
+        hypershift.openshift.io/control-plane-component: providerid-controller
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: providerid-controller
+        image: providerid-controller
+        imagePullPolicy: IfNotPresent
+        command:
+        - /usr/bin/control-plane-operator
+        - providerid-controller
+        - --kubeconfig=/etc/kubernetes/kubeconfig/kubeconfig
+        - --project=$(GOOGLE_CLOUD_PROJECT)
+        - --region=$(GCP_REGION)
+        - --log-level=info
+        env:
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /etc/gcp/application_default_credentials.json
+        - name: GOOGLE_CLOUD_PROJECT
+          value: ""
+        - name: GCP_REGION
+          value: ""
+        resources:
+          requests:
+            cpu: 10m
+            memory: 50Mi
+        volumeMounts:
+        - mountPath: /etc/kubernetes/kubeconfig
+          name: kubeconfig
+          readOnly: true
+        - mountPath: /etc/gcp
+          name: gcp-credentials
+          readOnly: true
+      priorityClassName: hypershift-control-plane
+      volumes:
+      - name: kubeconfig
+        secret:
+          defaultMode: 420
+          secretName: service-network-admin-kubeconfig
+      - name: gcp-credentials
+        secret:
+          defaultMode: 420
+          secretName: control-plane-operator-creds

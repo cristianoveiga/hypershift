@@ -61,6 +61,7 @@ import (
 	ocmv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/ocm"
 	olmv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/olm"
 	pkioperatorv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/pkioperator"
+	provideridcontroller "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/providerid_controller"
 	registryoperatorv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/registryoperator"
 	routecmv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/routecm"
 	routerv2 "github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/v2/router"
@@ -246,6 +247,7 @@ func (r *HostedControlPlaneReconciler) registerComponents(hcp *hyperv1.HostedCon
 		configoperatorv2.NewComponent(r.ReleaseProvider.GetRegistryOverrides(), r.ReleaseProvider.GetOpenShiftImageRegistryOverrides(), hcp.Spec.Capabilities),
 		awsccmv2.NewComponent(),
 		azureccmv2.NewComponent(),
+		provideridcontroller.NewComponent(),
 		kubevirtccmv2.NewComponent(),
 		openstackccmv2.NewComponent(),
 		powervsccmv2.NewComponent(),
