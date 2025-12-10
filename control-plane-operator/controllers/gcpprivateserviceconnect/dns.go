@@ -288,15 +288,15 @@ func generateZoneNames(clusterName, baseDomain string) zoneNames {
 	baseZoneName := strings.ReplaceAll(baseDomain, ".", "-")
 
 	// GCP DNS zone names must be <= 63 characters
-	// Leave room for prefixes/suffixes: "in-" (3) + "-public" (7) = 10 chars
-	maxBaseNameLen := 63 - 10
+	// Leave room for suffixes: "-public" (7) or "-private" (8) chars
+	maxBaseNameLen := 63 - 8
 	baseZoneName = truncateName(baseZoneName, maxBaseNameLen)
 
 	return zoneNames{
 		hypershiftLocalZoneName: truncateName(fmt.Sprintf("%s-hypershift-local", clusterName), 63),
-		publicIngressZoneName:   truncateName(fmt.Sprintf("in-%s-public", baseZoneName), 63),
-		privateIngressZoneName:  truncateName(fmt.Sprintf("in-%s-private", baseZoneName), 63),
-		ingressDNSName:          ensureDNSDot(fmt.Sprintf("in.%s", baseDomain)),
+		publicIngressZoneName:   truncateName(fmt.Sprintf("%s-public", baseZoneName), 63),
+		privateIngressZoneName:  truncateName(fmt.Sprintf("%s-private", baseZoneName), 63),
+		ingressDNSName:          ensureDNSDot(baseDomain),
 	}
 }
 
@@ -325,11 +325,11 @@ type DNSSetupResult struct {
 	HypershiftLocalCreatedRecords []string
 
 	// PublicIngressCreatedRecords contains FQDNs of records created in public ingress zone
-	// Example: ["*.apps.{cluster}.in.{baseDomain}."]
+	// Example: ["*.apps.{cluster}.{baseDomain}."]
 	PublicIngressCreatedRecords []string
 
 	// PrivateIngressCreatedRecords contains FQDNs of records created in private ingress zone
-	// Example: ["*.apps.{cluster}.in.{baseDomain}."]
+	// Example: ["*.apps.{cluster}.{baseDomain}."]
 	PrivateIngressCreatedRecords []string
 }
 
