@@ -1116,8 +1116,6 @@ spec:
                         - Preemptible
                         type: string
                       resourceLabels:
-                        additionalProperties:
-                          type: string
                         description: |-
                           resourceLabels is an optional list of additional labels to apply to GCP node
                           instances and their associated resources (disks, etc.).
@@ -1128,8 +1126,48 @@ spec:
                             - Keys: 1–63 chars, must start with a lowercase letter; allowed [a-z0-9_-]
                             - Values: empty or 1–63 chars; allowed [a-z0-9_-]
                             - Maximum 60 user labels per resource (GCP limit is 64 total, with ~4 reserved)
-                        maxProperties: 60
-                        type: object
+                        items:
+                          description: |-
+                            GCPResourceLabel is a label to apply to GCP resources created for the cluster.
+                            Labels are key-value pairs used for organizing and managing GCP resources.
+                            See https://cloud.google.com/compute/docs/labeling-resources for GCP labeling guidance.
+                          properties:
+                            key:
+                              description: |-
+                                key is the key part of the label. A label key can have a maximum of 63 characters and cannot be empty.
+                                For Compute Engine resources (VMs, disks, networks created by CAPG), keys must:
+                                - Start with a lowercase letter
+                                - Contain only lowercase letters, digits, or hyphens
+                                - End with a lowercase letter or digit (not a hyphen)
+                                - Be 1-63 characters long
+                                GCP reserves the 'goog' prefix for system labels.
+                                See https://cloud.google.com/compute/docs/labeling-resources for Compute Engine label requirements.
+                              maxLength: 63
+                              minLength: 1
+                              pattern: ^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$
+                              type: string
+                              x-kubernetes-validations:
+                              - message: Label keys starting with the reserved 'goog'
+                                  prefix are not allowed
+                                rule: '!self.startsWith(''goog'')'
+                            value:
+                              description: |-
+                                value is the value part of the label. A label value can have a maximum of 63 characters.
+                                Empty values are allowed by GCP. If non-empty, it must start with a lowercase letter,
+                                contain only lowercase letters, digits, or hyphens, and end with a lowercase letter or digit.
+                                See https://cloud.google.com/compute/docs/labeling-resources for Compute Engine label requirements.
+                              maxLength: 63
+                              minLength: 0
+                              pattern: ^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$
+                              type: string
+                          required:
+                          - key
+                          type: object
+                        maxItems: 60
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - key
+                        x-kubernetes-list-type: map
                       serviceAccount:
                         description: |-
                           serviceAccount configures the Google Service Account attached to node instances.

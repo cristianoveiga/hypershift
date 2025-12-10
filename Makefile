@@ -360,7 +360,7 @@ staticcheck: $(STATICCHECK)
 # Build the docker image with official golang image
 .PHONY: docker-build
 docker-build:
-	${RUNTIME}  build --platform linux/amd64 . -t ${IMG}
+	${RUNTIME} build --platform linux/amd64 . -t ${IMG}
 
 # Push the docker image
 .PHONY: docker-push

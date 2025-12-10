@@ -6210,7 +6210,9 @@ If not specified, uses the default compute service account for the project.</p>
 <td>
 <code>resourceLabels</code></br>
 <em>
-map[string]string
+<a href="#hypershift.openshift.io/v1beta1.GCPResourceLabel">
+[]GCPResourceLabel
+</a>
 </em>
 </td>
 <td>
@@ -6412,7 +6414,9 @@ Allowed values: &ldquo;Private&rdquo;, &ldquo;PublicAndPrivate&rdquo;. Defaults 
 <td>
 <code>resourceLabels</code></br>
 <em>
-map[string]string
+<a href="#hypershift.openshift.io/v1beta1.GCPResourceLabel">
+[]GCPResourceLabel
+</a>
 </em>
 </td>
 <td>
@@ -6628,6 +6632,60 @@ with 30 seconds notice when capacity is needed elsewhere.</p>
 Standard instances run until explicitly stopped and are not subject to automatic termination.</p>
 </td>
 </tr></tbody>
+</table>
+###GCPResourceLabel { #hypershift.openshift.io/v1beta1.GCPResourceLabel }
+<p>
+(<em>Appears on:</em>
+<a href="#hypershift.openshift.io/v1beta1.GCPNodePoolPlatform">GCPNodePoolPlatform</a>, 
+<a href="#hypershift.openshift.io/v1beta1.GCPPlatformSpec">GCPPlatformSpec</a>)
+</p>
+<p>
+<p>GCPResourceLabel is a label to apply to GCP resources created for the cluster.
+Labels are key-value pairs used for organizing and managing GCP resources.
+See <a href="https://cloud.google.com/compute/docs/labeling-resources">https://cloud.google.com/compute/docs/labeling-resources</a> for GCP labeling guidance.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>key</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>key is the key part of the label. A label key can have a maximum of 63 characters and cannot be empty.
+For Compute Engine resources (VMs, disks, networks created by CAPG), keys must:
+- Start with a lowercase letter
+- Contain only lowercase letters, digits, or hyphens
+- End with a lowercase letter or digit (not a hyphen)
+- Be 1-63 characters long
+GCP reserves the &lsquo;goog&rsquo; prefix for system labels.
+See <a href="https://cloud.google.com/compute/docs/labeling-resources">https://cloud.google.com/compute/docs/labeling-resources</a> for Compute Engine label requirements.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>value</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>value is the value part of the label. A label value can have a maximum of 63 characters.
+Empty values are allowed by GCP. If non-empty, it must start with a lowercase letter,
+contain only lowercase letters, digits, or hyphens, and end with a lowercase letter or digit.
+See <a href="https://cloud.google.com/compute/docs/labeling-resources">https://cloud.google.com/compute/docs/labeling-resources</a> for Compute Engine label requirements.</p>
+</td>
+</tr>
+</tbody>
 </table>
 ###GCPResourceReference { #hypershift.openshift.io/v1beta1.GCPResourceReference }
 <p>
