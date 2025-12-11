@@ -240,6 +240,8 @@ func (c *ProviderIDController) reconcileNodes(ctx context.Context) error {
 func (c *ProviderIDController) setProviderID(ctx context.Context, node *corev1.Node) error {
 	instanceName := extractInstanceName(node.Name)
 
+	c.log.Info("Processing node for providerID", "nodeName", node.Name, "extractedInstanceName", instanceName)
+
 	// Validate the extracted instance name
 	if err := validateInstanceName(instanceName); err != nil {
 		return fmt.Errorf("invalid instance name extracted from node %s: %w", node.Name, err)
@@ -253,6 +255,7 @@ func (c *ProviderIDController) setProviderID(ctx context.Context, node *corev1.N
 
 	if hasZoneLabel {
 		// If zone label exists, use it directly
+		c.log.Info("Using zone from node label", "instanceName", instanceName, "zone", zone)
 		instance, err = c.getInstance(ctx, zone, instanceName)
 		if err != nil {
 			return fmt.Errorf("failed to get instance: %w", err)
@@ -263,19 +266,22 @@ func (c *ProviderIDController) setProviderID(ctx context.Context, node *corev1.N
 
 		if zoneFromName != "" {
 			// Try the extracted zone first
-			c.log.Info("Trying zone extracted from node name", "node", node.Name, "zone", zoneFromName)
+			c.log.Info("Trying zone extracted from node name", "instanceName", instanceName, "zone", zoneFromName)
 			instance, err = c.getInstance(ctx, zoneFromName, instanceName)
 			if err != nil && !strings.Contains(err.Error(), "404") && !strings.Contains(err.Error(), "notFound") {
 				return fmt.Errorf("failed to get instance from extracted zone: %w", err)
 			}
 			if instance != nil {
+				c.log.Info("Found instance in extracted zone", "instanceName", instanceName, "zone", zoneFromName)
 				zone = zoneFromName
+			} else {
+				c.log.Info("Instance not found in extracted zone", "instanceName", instanceName, "zone", zoneFromName)
 			}
 		}
 
 		// If not found with extracted zone, fall back to searching all zones
 		if instance == nil {
-			c.log.Info("Zone label not found, searching for instance across zones", "node", node.Name, "region", c.region)
+			c.log.Info("Searching for instance across all zones in region", "instanceName", instanceName, "region", c.region)
 			instance, zone, err = c.findInstanceInRegion(ctx, instanceName)
 			if err != nil {
 				return fmt.Errorf("failed to find instance in region: %w", err)
@@ -339,14 +345,17 @@ func (c *ProviderIDController) findInstanceInRegion(ctx context.Context, instanc
 		return nil, "", fmt.Errorf("failed to list zones: %w", err)
 	}
 
+	c.log.Info("Searching zones in region", "instanceName", instanceName, "region", c.region, "zoneCount", len(zones.Items))
+
 	// Search for the instance in each zone
 	for _, zone := range zones.Items {
+		c.log.Info("Checking zone for instance", "instanceName", instanceName, "zone", zone.Name)
 		instance, err := c.getInstance(ctx, zone.Name, instanceName)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to get instance from zone %s: %w", zone.Name, err)
 		}
 		if instance != nil {
-			c.log.Info("Found instance in zone", "instance", instanceName, "zone", zone.Name)
+			c.log.Info("Found instance in zone", "instanceName", instanceName, "zone", zone.Name)
 			return instance, zone.Name, nil
 		}
 	}
