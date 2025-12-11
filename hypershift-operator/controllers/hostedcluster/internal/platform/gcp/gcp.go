@@ -156,8 +156,12 @@ func (p GCP) reconcileGCPCluster(gcpCluster *capigcp.GCPCluster, hcluster *hyper
 		if gcpCluster.Spec.AdditionalLabels == nil {
 			gcpCluster.Spec.AdditionalLabels = make(map[string]string)
 		}
-		for key, value := range gcpSpec.ResourceLabels {
-			gcpCluster.Spec.AdditionalLabels[key] = value
+		for _, label := range gcpSpec.ResourceLabels {
+			value := ""
+			if label.Value != nil {
+				value = *label.Value
+			}
+			gcpCluster.Spec.AdditionalLabels[label.Key] = value
 		}
 	}
 

@@ -231,9 +231,9 @@ func TestGcpMachineTemplateSpec(t *testing.T) {
 						GCP: &hyperv1.GCPNodePoolPlatform{
 							MachineType: "n1-standard-2",
 							Zone:        "us-central1-a",
-							ResourceLabels: map[string]string{
-								"env":  "test",
-								"team": "platform",
+							ResourceLabels: []hyperv1.GCPResourceLabel{
+								{Key: "env", Value: ptr.To("test")},
+								{Key: "team", Value: ptr.To("platform")},
 							},
 							NetworkTags: []string{"allow-ssh", "allow-internal"},
 						},
@@ -257,8 +257,8 @@ func TestGcpMachineTemplateSpec(t *testing.T) {
 									Name: "test-psc-subnet",
 								},
 							},
-							ResourceLabels: map[string]string{
-								"cluster": "test-cluster",
+							ResourceLabels: []hyperv1.GCPResourceLabel{
+								{Key: "cluster", Value: ptr.To("test-cluster")},
 							},
 						},
 					},

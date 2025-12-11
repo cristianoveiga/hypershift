@@ -245,15 +245,23 @@ func configureGCPLabels(hcGCPPlatform *hyperv1.GCPPlatformSpec, gcpPlatform *hyp
 
 	// Add cluster-level resource labels
 	if hcGCPPlatform.ResourceLabels != nil {
-		for k, v := range hcGCPPlatform.ResourceLabels {
-			labels[k] = v
+		for _, label := range hcGCPPlatform.ResourceLabels {
+			value := ""
+			if label.Value != nil {
+				value = *label.Value
+			}
+			labels[label.Key] = value
 		}
 	}
 
 	// Add NodePool-level resource labels (overrides cluster labels)
 	if gcpPlatform.ResourceLabels != nil {
-		for k, v := range gcpPlatform.ResourceLabels {
-			labels[k] = v
+		for _, label := range gcpPlatform.ResourceLabels {
+			value := ""
+			if label.Value != nil {
+				value = *label.Value
+			}
+			labels[label.Key] = value
 		}
 	}
 
