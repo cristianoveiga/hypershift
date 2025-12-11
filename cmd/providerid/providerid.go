@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -120,6 +121,68 @@ const (
 	zoneLabel     = "topology.kubernetes.io/zone"
 )
 
+// extractInstanceName extracts the GCP instance name from the node name.
+// It handles multiple formats:
+// 1. GCP internal DNS: <instance-name>.<zone>.c.<project-id>.internal
+// 2. Short hostname: <instance-name>.<zone>.<domain>
+// 3. Plain instance name: <instance-name>
+//
+// Returns the instance name part (first segment before any dots).
+func extractInstanceName(nodeName string) string {
+	// Split by '.' and take the first part
+	parts := strings.Split(nodeName, ".")
+	if len(parts) > 0 && parts[0] != "" {
+		return parts[0]
+	}
+	// Fallback to full name if parsing fails or is empty
+	return nodeName
+}
+
+// extractZoneFromNodeName attempts to extract the zone from the node's DNS name.
+// It handles multiple formats:
+// 1. GCP internal DNS: <instance-name>.<zone>.c.<project-id>.internal
+// 2. Short hostname: <instance-name>.<zone>.<domain>
+//
+// Returns empty string if the format doesn't match expectations or zone cannot be determined.
+func extractZoneFromNodeName(nodeName string) string {
+	parts := strings.Split(nodeName, ".")
+	// Need at least 2 parts: instance.zone or more
+	if len(parts) >= 2 {
+		// The zone is typically the second component
+		zone := parts[1]
+		// Basic validation: GCP zone should contain hyphens (e.g., us-central1-a)
+		// This helps avoid treating random domain parts as zones
+		if strings.Contains(zone, "-") && len(zone) > 3 {
+			return zone
+		}
+	}
+	return ""
+}
+
+// validateInstanceName checks if the instance name conforms to GCP naming requirements.
+// GCP instance names must match: [a-z](?:[-a-z0-9]{0,61}[a-z0-9])?|[1-9][0-9]{0,19}
+// - Must start with a lowercase letter or digit
+// - Can contain lowercase letters, numbers, and hyphens
+// - Must be 1-63 characters long
+// - Cannot end with a hyphen
+func validateInstanceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("instance name cannot be empty")
+	}
+
+	if len(name) > 63 {
+		return fmt.Errorf("instance name too long (%d chars, max 63): %s", len(name), name)
+	}
+
+	// Check for valid characters and format
+	validNamePattern := regexp.MustCompile(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$|^[1-9][0-9]{0,19}$`)
+	if !validNamePattern.MatchString(name) {
+		return fmt.Errorf("instance name '%s' does not match GCP naming requirements (must start with lowercase letter, contain only lowercase letters, numbers, and hyphens, and not end with hyphen)", name)
+	}
+
+	return nil
+}
+
 func (c *ProviderIDController) Run(ctx context.Context) error {
 	c.log.Info("Starting reconciliation loop")
 
@@ -175,7 +238,12 @@ func (c *ProviderIDController) reconcileNodes(ctx context.Context) error {
 }
 
 func (c *ProviderIDController) setProviderID(ctx context.Context, node *corev1.Node) error {
-	instanceName := node.Name
+	instanceName := extractInstanceName(node.Name)
+
+	// Validate the extracted instance name
+	if err := validateInstanceName(instanceName); err != nil {
+		return fmt.Errorf("invalid instance name extracted from node %s: %w", node.Name, err)
+	}
 
 	// Try to get zone from node labels first
 	zone, hasZoneLabel := node.Labels[zoneLabel]
@@ -190,11 +258,28 @@ func (c *ProviderIDController) setProviderID(ctx context.Context, node *corev1.N
 			return fmt.Errorf("failed to get instance: %w", err)
 		}
 	} else {
-		// Zone label not set, search for the instance across all zones in the region
-		c.log.Info("Zone label not found, searching for instance across zones", "node", instanceName, "region", c.region)
-		instance, zone, err = c.findInstanceInRegion(ctx, instanceName)
-		if err != nil {
-			return fmt.Errorf("failed to find instance in region: %w", err)
+		// Try to extract zone from node name
+		zoneFromName := extractZoneFromNodeName(node.Name)
+
+		if zoneFromName != "" {
+			// Try the extracted zone first
+			c.log.Info("Trying zone extracted from node name", "node", node.Name, "zone", zoneFromName)
+			instance, err = c.getInstance(ctx, zoneFromName, instanceName)
+			if err != nil && !strings.Contains(err.Error(), "404") && !strings.Contains(err.Error(), "notFound") {
+				return fmt.Errorf("failed to get instance from extracted zone: %w", err)
+			}
+			if instance != nil {
+				zone = zoneFromName
+			}
+		}
+
+		// If not found with extracted zone, fall back to searching all zones
+		if instance == nil {
+			c.log.Info("Zone label not found, searching for instance across zones", "node", node.Name, "region", c.region)
+			instance, zone, err = c.findInstanceInRegion(ctx, instanceName)
+			if err != nil {
+				return fmt.Errorf("failed to find instance in region: %w", err)
+			}
 		}
 	}
 
