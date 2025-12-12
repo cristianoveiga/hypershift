@@ -399,7 +399,7 @@ func (r *NodePoolReconciler) updatingConfigCondition(ctx context.Context, nodePo
 		if nodePool.Spec.Management.UpgradeType == hyperv1.UpgradeTypeInPlace {
 			capiClusterName := hcluster.Spec.InfraID
 			if nodePool.Spec.Platform.Type == hyperv1.GCPPlatform {
-				capiClusterName = gcpCompliantClusterName(hcluster.Spec.InfraID)
+				capiClusterName = "capi-cluster"
 			}
 			capi, err := newCAPI(token, capiClusterName)
 			if err != nil {
@@ -470,7 +470,7 @@ func (r *NodePoolReconciler) updatingVersionCondition(ctx context.Context, nodeP
 
 			capiClusterName := hcluster.Spec.InfraID
 			if nodePool.Spec.Platform.Type == hyperv1.GCPPlatform {
-				capiClusterName = gcpCompliantClusterName(hcluster.Spec.InfraID)
+				capiClusterName = "capi-cluster"
 			}
 			capi, err := newCAPI(token, capiClusterName)
 			if err != nil {
