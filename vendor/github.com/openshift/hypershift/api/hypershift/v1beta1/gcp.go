@@ -17,6 +17,38 @@ type GCPResourceReference struct {
 	Name string `json:"name"`
 }
 
+// GCPResourceLabel is a label to apply to GCP resources created for the cluster.
+// Labels are key-value pairs used for organizing and managing GCP resources.
+// See https://cloud.google.com/compute/docs/labeling-resources for GCP labeling guidance.
+type GCPResourceLabel struct {
+	// key is the key part of the label. A label key can have a maximum of 63 characters and cannot be empty.
+	// For Compute Engine resources (VMs, disks, networks created by CAPG), keys must:
+	// - Start with a lowercase letter
+	// - Contain only lowercase letters, digits, or hyphens
+	// - End with a lowercase letter or digit (not a hyphen)
+	// - Be 1-63 characters long
+	// GCP reserves the 'goog' prefix for system labels.
+	// See https://cloud.google.com/compute/docs/labeling-resources for Compute Engine label requirements.
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('goog')",message="Label keys starting with the reserved 'goog' prefix are not allowed"
+	Key string `json:"key,omitempty"`
+
+	// value is the value part of the label. A label value can have a maximum of 63 characters.
+	// Empty values are allowed by GCP. If non-empty, it must start with a lowercase letter,
+	// contain only lowercase letters, digits, or hyphens, and end with a lowercase letter or digit.
+	// See https://cloud.google.com/compute/docs/labeling-resources for Compute Engine label requirements.
+	//
+	// +optional
+	// +kubebuilder:validation:MinLength=0
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^$|^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`
+	Value *string `json:"value,omitempty"`
+}
+
 // GCPEndpointAccessType defines the endpoint access type for GCP clusters.
 // Equivalent to AWS EndpointAccessType but adapted for GCP networking model.
 type GCPEndpointAccessType string
@@ -115,8 +147,10 @@ type GCPPlatformSpec struct {
 	// For GCP labeling guidance, see https://cloud.google.com/compute/docs/labeling-resources
 	//
 	// +optional
-	// +kubebuilder:validation:MaxProperties=60
-	ResourceLabels map[string]string `json:"resourceLabels,omitempty"`
+	// +listType=map
+	// +listMapKey=key
+	// +kubebuilder:validation:MaxItems=60
+	ResourceLabels []GCPResourceLabel `json:"resourceLabels,omitempty"`
 
 	// workloadIdentity configures Workload Identity Federation for the cluster.
 	// This enables secure, short-lived token-based authentication without storing
@@ -311,8 +345,10 @@ type GCPNodePoolPlatform struct {
 	//   - Maximum 60 user labels per resource (GCP limit is 64 total, with ~4 reserved)
 	//
 	// +optional
-	// +kubebuilder:validation:MaxProperties=60
-	ResourceLabels map[string]string `json:"resourceLabels,omitempty"`
+	// +listType=map
+	// +listMapKey=key
+	// +kubebuilder:validation:MaxItems=60
+	ResourceLabels []GCPResourceLabel `json:"resourceLabels,omitempty"`
 
 	// networkTags is an optional list of network tags to apply to node instances.
 	// These tags are used by GCP firewall rules to control network access.

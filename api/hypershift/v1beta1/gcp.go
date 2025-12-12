@@ -35,7 +35,7 @@ type GCPResourceLabel struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`
 	// +kubebuilder:validation:XValidation:rule="!self.startsWith('goog')",message="Label keys starting with the reserved 'goog' prefix are not allowed"
-	Key string `json:"key"`
+	Key string `json:"key,omitempty"`
 
 	// value is the value part of the label. A label value can have a maximum of 63 characters.
 	// Empty values are allowed by GCP. If non-empty, it must start with a lowercase letter,

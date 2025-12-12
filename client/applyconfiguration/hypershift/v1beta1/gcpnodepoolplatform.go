@@ -29,7 +29,7 @@ type GCPNodePoolPlatformApplyConfiguration struct {
 	Image             *string                                  `json:"image,omitempty"`
 	BootDisk          *GCPBootDiskApplyConfiguration           `json:"bootDisk,omitempty"`
 	ServiceAccount    *GCPNodeServiceAccountApplyConfiguration `json:"serviceAccount,omitempty"`
-	ResourceLabels    map[string]string                        `json:"resourceLabels,omitempty"`
+	ResourceLabels    []GCPResourceLabelApplyConfiguration     `json:"resourceLabels,omitempty"`
 	NetworkTags       []string                                 `json:"networkTags,omitempty"`
 	ProvisioningModel *hypershiftv1beta1.GCPProvisioningModel  `json:"provisioningModel,omitempty"`
 	OnHostMaintenance *string                                  `json:"onHostMaintenance,omitempty"`
@@ -81,16 +81,15 @@ func (b *GCPNodePoolPlatformApplyConfiguration) WithServiceAccount(value *GCPNod
 	return b
 }
 
-// WithResourceLabels puts the entries into the ResourceLabels field in the declarative configuration
+// WithResourceLabels adds the given value to the ResourceLabels field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, the entries provided by each call will be put on the ResourceLabels field,
-// overwriting an existing map entries in ResourceLabels field with the same key.
-func (b *GCPNodePoolPlatformApplyConfiguration) WithResourceLabels(entries map[string]string) *GCPNodePoolPlatformApplyConfiguration {
-	if b.ResourceLabels == nil && len(entries) > 0 {
-		b.ResourceLabels = make(map[string]string, len(entries))
-	}
-	for k, v := range entries {
-		b.ResourceLabels[k] = v
+// If called multiple times, values provided by each call will be appended to the ResourceLabels field.
+func (b *GCPNodePoolPlatformApplyConfiguration) WithResourceLabels(values ...*GCPResourceLabelApplyConfiguration) *GCPNodePoolPlatformApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithResourceLabels")
+		}
+		b.ResourceLabels = append(b.ResourceLabels, *values[i])
 	}
 	return b
 }
