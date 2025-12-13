@@ -39,11 +39,28 @@ func adaptServiceKubeconfigSecret(cpContext component.WorkloadContext, secret *c
 	return nil
 }
 
+// gcpCompliantCAPIClusterName returns the CAPI cluster name for GCP, matching the logic
+// in hypershift-operator that creates the CAPI cluster (hostedcluster_controller.go:gcpCompliantClusterName).
+// For GCP, the infraID is always prefixed with "hcp-" to comply with GCP network tag requirements
+// (CAPG generates network tags from cluster name, and tags must start with a lowercase letter).
+func gcpCompliantCAPIClusterName(infraID string) string {
+	if len(infraID) == 0 {
+		return infraID
+	}
+
+	// Always prefix with 'hcp-' (for hypershift control plane) for consistent GCP-compliant naming
+	return "hcp-" + infraID
+}
+
 func adaptCAPIKubeconfigSecret(cpContext component.WorkloadContext, secret *corev1.Secret) error {
-	// For GCP, use fixed "capi-cluster" name; for other platforms, use infraID
 	clusterName := cpContext.HCP.Spec.InfraID
+
+	// For GCP, use GCP-compliant cluster name to match CAPI cluster naming.
+	// The hypershift-operator creates the CAPI cluster with a GCP-compliant name,
+	// so we must use the same naming logic here to ensure the kubeconfig secret
+	// name matches what CAPI machine controller expects.
 	if cpContext.HCP.Spec.Platform.Type == hyperv1.GCPPlatform {
-		clusterName = "capi-cluster"
+		clusterName = gcpCompliantCAPIClusterName(clusterName)
 	}
 
 	// The client used by CAPI machine controller expects the kubeconfig to follow this naming convention
