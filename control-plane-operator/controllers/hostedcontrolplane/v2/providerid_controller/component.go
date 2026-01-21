@@ -3,7 +3,6 @@ package provideridcontroller
 import (
 	"fmt"
 
-	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	component "github.com/openshift/hypershift/support/controlplane-component"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,7 +44,10 @@ func NewComponent() component.ControlPlaneComponent {
 }
 
 func predicate(cpContext component.WorkloadContext) (bool, error) {
-	return cpContext.HCP.Spec.Platform.Type == hyperv1.GCPPlatform, nil
+	// ProviderID controller has been replaced by GCP Cloud Controller Manager
+	// which handles providerID, zone labels, and taint removal for nodes.
+	// Keeping this component disabled but retaining the code for reference.
+	return false, nil
 }
 
 func adaptDeployment(cpContext component.WorkloadContext, deployment *appsv1.Deployment) error {
