@@ -20,7 +20,7 @@ spec:
         image: gcp-cloud-controller-manager
         imagePullPolicy: IfNotPresent
         command:
-        - /gcp-cloud-controller-manager
+        - /bin/gcp-cloud-controller-manager
         args:
         - --cloud-provider=gce
         - --use-service-account-credentials=false
