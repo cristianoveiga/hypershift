@@ -3,6 +3,7 @@ package gcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	component "github.com/openshift/hypershift/support/controlplane-component"
 
@@ -65,9 +66,14 @@ func adaptConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap) erro
 	networkName := gcpPlatform.NetworkConfig.Network.Name
 	subnetworkName := "" // Subnetwork is optional for CCM
 
+	// Node tags are used for firewall rules. The nodepool controller applies
+	// the tag "{infraID}-worker" to all worker nodes. GCP network tags must be
+	// lowercase, so we apply the same transformation as the nodepool controller.
+	nodeTags := strings.ToLower(fmt.Sprintf("%s-worker", cpContext.HCP.Spec.InfraID))
+
 	// Get the config template and populate it
 	configTemplate := cm.Data[configKey]
-	config := fmt.Sprintf(configTemplate, projectID, networkName, subnetworkName)
+	config := fmt.Sprintf(configTemplate, projectID, networkName, subnetworkName, nodeTags)
 
 	cm.Data[configKey] = config
 	return nil
