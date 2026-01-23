@@ -7,7 +7,6 @@ import (
 
 	component "github.com/openshift/hypershift/support/controlplane-component"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -15,9 +14,6 @@ const (
 	configKey      = "cloud.conf"
 	credentialsKey = "credentials.json"
 	tokenFilePath  = "/var/run/secrets/openshift/serviceaccount/token"
-
-	// GCPCCMImageAnnotation allows overriding the GCP CCM image until it's in the release payload
-	GCPCCMImageAnnotation = "hypershift.openshift.io/gcp-cloud-controller-manager-image"
 )
 
 // gcpCredentialSource represents the credential source configuration for GCP external account credentials.
@@ -40,20 +36,6 @@ type gcpExternalAccountCredential struct {
 	TokenURL                       string              `json:"token_url"`
 	ServiceAccountImpersonationURL string              `json:"service_account_impersonation_url"`
 	CredentialSource               gcpCredentialSource `json:"credential_source"`
-}
-
-func adaptDeployment(cpContext component.WorkloadContext, deployment *appsv1.Deployment) error {
-	// Check for image override annotation
-	if imageOverride, ok := cpContext.HCP.Annotations[GCPCCMImageAnnotation]; ok && imageOverride != "" {
-		for i := range deployment.Spec.Template.Spec.Containers {
-			if deployment.Spec.Template.Spec.Containers[i].Name == "cloud-controller-manager" {
-				deployment.Spec.Template.Spec.Containers[i].Image = imageOverride
-				break
-			}
-		}
-	}
-
-	return nil
 }
 
 func adaptConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap) error {

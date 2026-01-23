@@ -31,7 +31,6 @@ func (c *gcpOptions) NeedsManagementKASAccess() bool {
 
 func NewComponent() component.ControlPlaneComponent {
 	return component.NewDeploymentComponent(ComponentName, &gcpOptions{}).
-		WithAdaptFunction(adaptDeployment).
 		WithPredicate(predicate).
 		WithManifestAdapter(
 			"config.yaml",

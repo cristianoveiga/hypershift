@@ -11,7 +11,6 @@ import (
 	"github.com/openshift/hypershift/support/testutil"
 	"github.com/openshift/hypershift/support/util"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -202,70 +201,6 @@ func TestCredentialsSecretErrorStates(t *testing.T) {
 			}
 			if tt.expectedErr != "" && err.Error() != tt.expectedErr {
 				t.Fatalf("expected error '%s', but got: %v", tt.expectedErr, err)
-			}
-		})
-	}
-}
-
-func TestAdaptDeployment(t *testing.T) {
-	tests := []struct {
-		name          string
-		annotations   map[string]string
-		expectedImage string
-	}{
-		{
-			name:          "no image override",
-			annotations:   map[string]string{},
-			expectedImage: "original-image:latest",
-		},
-		{
-			name: "with image override annotation",
-			annotations: map[string]string{
-				GCPCCMImageAnnotation: "custom-registry.io/gcp-ccm:v1.0.0",
-			},
-			expectedImage: "custom-registry.io/gcp-ccm:v1.0.0",
-		},
-		{
-			name: "empty image override annotation",
-			annotations: map[string]string{
-				GCPCCMImageAnnotation: "",
-			},
-			expectedImage: "original-image:latest",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			hcp := newTestHCP()
-			hcp.Annotations = tt.annotations
-
-			deployment := &appsv1.Deployment{
-				Spec: appsv1.DeploymentSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "cloud-controller-manager",
-									Image: "original-image:latest",
-								},
-							},
-						},
-					},
-				},
-			}
-
-			cpContext := component.WorkloadContext{
-				HCP: hcp,
-			}
-
-			err := adaptDeployment(cpContext, deployment)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			actualImage := deployment.Spec.Template.Spec.Containers[0].Image
-			if actualImage != tt.expectedImage {
-				t.Errorf("expected image '%s', got '%s'", tt.expectedImage, actualImage)
 			}
 		})
 	}
