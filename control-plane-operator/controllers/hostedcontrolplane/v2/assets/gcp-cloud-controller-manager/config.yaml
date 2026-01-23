@@ -5,6 +5,7 @@ data:
     project-id = %s
     network-name = %s
     subnetwork-name = %s
+    token-url = "nil"
 kind: ConfigMap
 metadata:
   name: gcp-cloud-config
