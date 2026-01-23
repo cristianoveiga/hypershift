@@ -27,7 +27,7 @@ spec:
         - --kubeconfig=/etc/kubernetes/kubeconfig/kubeconfig
         - --cloud-config=/etc/cloud/cloud.conf
         - --configure-cloud-routes=false
-        - --controllers=*
+        - --controllers=*,-nodeipam
         - --leader-elect=true
         - --leader-elect-lease-duration=137s
         - --leader-elect-renew-deadline=107s
