@@ -17,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/util/workqueue"
@@ -525,6 +526,24 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, g
 		},
 	}
 
+	// Create DNSEndpoint for NS delegation to region DNS zone
+	// This is a best-effort operation - any failure is logged but doesn't fail the reconciliation
+	if len(dnsResult.PublicIngressNSRecords) > 0 {
+		log.Info("Creating DNSEndpoint for ingress zone delegation",
+			"dnsName", dnsResult.IngressDNSName,
+			"nameservers", dnsResult.PublicIngressNSRecords)
+
+		if err := r.reconcileDNSEndpoint(ctx, hcp, dnsResult.IngressDNSName, dnsResult.PublicIngressNSRecords); err != nil {
+			// Log the error but don't fail reconciliation
+			// DNSEndpoint creation can fail for various reasons (CRD missing, validation webhook,
+			// permissions, network issues, etc.) and shouldn't break PSC reconciliation
+			log.Info("DNSEndpoint creation failed, will retry on next reconciliation",
+				"error", err.Error())
+		} else {
+			log.Info("DNSEndpoint created successfully for ingress delegation")
+		}
+	}
+
 	// Set GCPDNSAvailable condition to True
 	meta.SetStatusCondition(&gcpPSC.Status.Conditions, metav1.Condition{
 		Type:               string(hyperv1.GCPDNSAvailable),
@@ -544,8 +563,28 @@ func (r *GCPPrivateServiceConnectReconciler) reconcileDNS(ctx context.Context, g
 	return ctrl.Result{}, nil
 }
 
-// cleanupDNS cleans up DNS zones using zone names stored in PSC status
+// cleanupDNS cleans up DNS zones and DNSEndpoint using zone names stored in PSC status
 func (r *GCPPrivateServiceConnectReconciler) cleanupDNS(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Clean up DNSEndpoint first (even if we don't have zone info)
+	hcp, err := r.getHostedControlPlane(ctx, gcpPSC)
+	if err == nil {
+		// Delete DNSEndpoint if it exists
+		dnsEndpoint := &unstructured.Unstructured{}
+		dnsEndpoint.SetAPIVersion("externaldns.k8s.io/v1alpha1")
+		dnsEndpoint.SetKind("DNSEndpoint")
+		dnsEndpoint.SetName(hcp.Name + "-ingress-delegation")
+		dnsEndpoint.SetNamespace(hcp.Namespace)
+
+		if err := r.Client.Delete(ctx, dnsEndpoint); err != nil && !apierrors.IsNotFound(err) {
+			log.Error(err, "Failed to delete DNSEndpoint during cleanup")
+			// Don't fail cleanup just because DNSEndpoint deletion failed
+		} else if err == nil {
+			log.Info("Deleted DNSEndpoint during cleanup", "name", dnsEndpoint.GetName())
+		}
+	}
+
 	// Check if we have zone information in status
 	if len(gcpPSC.Status.DNSZones) == 0 {
 		return nil // No DNS zones to clean up
@@ -796,6 +835,89 @@ func reconcileExternalServiceGCP(svc *corev1.Service, hcp *hyperv1.HostedControl
 			Port:     443,
 			Protocol: corev1.ProtocolTCP,
 		},
+	}
+
+	return nil
+}
+
+// reconcileDNSEndpoint creates or updates a DNSEndpoint resource for NS delegation
+// from the region DNS zone to the customer project's public ingress zone.
+//
+// This enables external-dns running in the region cluster to create NS records
+// that delegate the ingress subdomain to the nameservers of the customer's public zone.
+func (r *GCPPrivateServiceConnectReconciler) reconcileDNSEndpoint(
+	ctx context.Context,
+	hcp *hyperv1.HostedControlPlane,
+	ingressDNSName string,
+	nameservers []string,
+) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Remove trailing dot from DNS name if present (DNSEndpoint spec doesn't use it)
+	dnsName := ingressDNSName
+	if len(dnsName) > 0 && dnsName[len(dnsName)-1] == '.' {
+		dnsName = dnsName[:len(dnsName)-1]
+	}
+
+	// Create DNSEndpoint as an unstructured object
+	dnsEndpoint := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "externaldns.k8s.io/v1alpha1",
+			"kind":       "DNSEndpoint",
+			"metadata": map[string]interface{}{
+				"name":      hcp.Name + "-ingress-delegation",
+				"namespace": hcp.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"endpoints": []interface{}{
+					map[string]interface{}{
+						"dnsName":    dnsName,
+						"recordType": "NS",
+						"targets":    nameservers,
+						"recordTTL":  300,
+					},
+				},
+			},
+		},
+	}
+
+	// Set owner reference to HCP for garbage collection
+	if err := controllerutil.SetControllerReference(hcp, dnsEndpoint, r.Scheme()); err != nil {
+		return fmt.Errorf("failed to set controller reference on DNSEndpoint: %w", err)
+	}
+
+	// Create or update the DNSEndpoint
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(dnsEndpoint.GroupVersionKind())
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(dnsEndpoint), existing)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create new DNSEndpoint
+			log.Info("Creating new DNSEndpoint",
+				"name", dnsEndpoint.GetName(),
+				"namespace", dnsEndpoint.GetNamespace(),
+				"dnsName", dnsName,
+				"nameservers", nameservers)
+
+			if err := r.Client.Create(ctx, dnsEndpoint); err != nil {
+				return fmt.Errorf("failed to create DNSEndpoint: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to get DNSEndpoint: %w", err)
+	}
+
+	// Update existing DNSEndpoint
+	log.Info("Updating existing DNSEndpoint",
+		"name", dnsEndpoint.GetName(),
+		"namespace", dnsEndpoint.GetNamespace(),
+		"dnsName", dnsName,
+		"nameservers", nameservers)
+
+	dnsEndpoint.SetResourceVersion(existing.GetResourceVersion())
+	if err := r.Client.Update(ctx, dnsEndpoint); err != nil {
+		return fmt.Errorf("failed to update DNSEndpoint: %w", err)
 	}
 
 	return nil
