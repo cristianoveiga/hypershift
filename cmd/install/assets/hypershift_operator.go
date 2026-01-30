@@ -1325,6 +1325,13 @@ func (o HyperShiftOperatorClusterRole) Build() *rbacv1.ClusterRole {
 				Resources: []string{"verticalpodautoscalers"},
 				Verbs:     []string{rbacv1.VerbAll},
 			},
+			// This allows hypershift operator to grant RBAC permissions for DNSEndpoints to the control-plane-operator.
+			// Required for GCP ingress zone delegation feature.
+			{
+				APIGroups: []string{"externaldns.k8s.io"},
+				Resources: []string{"dnsendpoints"},
+				Verbs:     []string{"create", "get", "update", "delete"},
+			},
 		},
 	}
 	if o.EnableCVOManagementClusterMetricsAccess {
