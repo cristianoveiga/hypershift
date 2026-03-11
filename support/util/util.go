@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	kubeclient "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/util/retry"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -496,6 +497,24 @@ func GetMgmtClusterCPUArch(kc kubeclient.Interface) (string, error) {
 	}
 
 	return platformParts[1], nil
+}
+
+// MgmtClusterSupportsNativeSidecars checks if the management cluster's Kubernetes version supports
+// native sidecar containers (K8s >= 1.29, where the SidecarContainers feature gate is beta and enabled by default).
+func MgmtClusterSupportsNativeSidecars(client discovery.ServerVersionInterface) (bool, error) {
+	info, err := client.ServerVersion()
+	if err != nil {
+		return false, fmt.Errorf("failed to detect management cluster version: %w", err)
+	}
+
+	version, err := semver.ParseTolerant(info.GitVersion)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse management cluster version %q: %w", info.GitVersion, err)
+	}
+
+	// Native sidecar containers (RestartPolicy=Always on init containers) are beta and enabled
+	// by default starting in K8s 1.29. See https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
+	return version.GE(semver.MustParse("1.29.0")), nil
 }
 
 // DetermineHostedClusterPayloadArch returns the HostedCluster payload's CPU architecture type

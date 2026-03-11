@@ -159,6 +159,9 @@ type HostedControlPlaneReconciler struct {
 	// ManagementClusterCapabilities can be asked for support of optional management cluster capabilities
 	ManagementClusterCapabilities capabilities.CapabiltyChecker
 
+	// NativeSidecarContainersEnabled indicates whether the management cluster supports native sidecar containers (K8s >= 1.29).
+	NativeSidecarContainersEnabled bool
+
 	// SetDefaultSecurityContext is used to configure Security Context for containers
 	SetDefaultSecurityContext bool
 	// DefaultSecurityContextUID is the UID to use for the default security context
@@ -1171,18 +1174,19 @@ func (r *HostedControlPlaneReconciler) reconcileCPOV2(ctx context.Context, hcp *
 	}
 
 	cpContext := component.ControlPlaneContext{
-		Context:                   ctx,
-		Client:                    r.Client,
-		HCP:                       hcp,
-		ApplyProvider:             upsert.NewApplyProvider(r.EnableCIDebugOutput),
-		InfraStatus:               infraStatus,
-		ReleaseImageProvider:      releaseImageProvider,
-		UserReleaseImageProvider:  userReleaseImageProvider,
-		SetDefaultSecurityContext: r.SetDefaultSecurityContext,
-		DefaultSecurityContextUID: r.DefaultSecurityContextUID,
-		MetricsSet:                r.MetricsSet,
-		EnableCIDebugOutput:       r.EnableCIDebugOutput,
-		ImageMetadataProvider:     r.ImageMetadataProvider,
+		Context:                        ctx,
+		Client:                         r.Client,
+		HCP:                            hcp,
+		ApplyProvider:                  upsert.NewApplyProvider(r.EnableCIDebugOutput),
+		InfraStatus:                    infraStatus,
+		ReleaseImageProvider:           releaseImageProvider,
+		UserReleaseImageProvider:       userReleaseImageProvider,
+		SetDefaultSecurityContext:      r.SetDefaultSecurityContext,
+		DefaultSecurityContextUID:      r.DefaultSecurityContextUID,
+		MetricsSet:                     r.MetricsSet,
+		EnableCIDebugOutput:            r.EnableCIDebugOutput,
+		ImageMetadataProvider:          r.ImageMetadataProvider,
+		NativeSidecarContainersEnabled: r.NativeSidecarContainersEnabled,
 	}
 
 	var errs []error

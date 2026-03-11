@@ -255,6 +255,13 @@ func NewStartCommand() *cobra.Command {
 			os.Exit(1)
 		}
 
+		nativeSidecarsEnabled, err := util.MgmtClusterSupportsNativeSidecars(kubeDiscoveryClient)
+		if err != nil {
+			setupLog.Error(err, "unable to detect native sidecar container support, falling back to regular sidecars")
+			nativeSidecarsEnabled = false
+		}
+		setupLog.Info("Native sidecar containers support", "enabled", nativeSidecarsEnabled)
+
 		hcpClient, err := hyperclient.NewForConfig(mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "unable to create hcp client")
@@ -474,6 +481,7 @@ func NewStartCommand() *cobra.Command {
 		if err := (&hostedcontrolplane.HostedControlPlaneReconciler{
 			Client:                                  mgr.GetClient(),
 			ManagementClusterCapabilities:           mgmtClusterCaps,
+			NativeSidecarContainersEnabled:          nativeSidecarsEnabled,
 			ReleaseProvider:                         cpReleaseProvider,
 			UserReleaseProvider:                     userReleaseProvider,
 			EnableCIDebugOutput:                     enableCIDebugOutput,
